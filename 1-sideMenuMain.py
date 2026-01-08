@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 from openpyxl import load_workbook
 from openpyxl import Workbook
 import datetime
+import sqlite3 
 from PyQt6.QtCore import *
 from PyQt6.QtGui import *
 from PyQt6.QtWidgets import *
@@ -52,7 +53,7 @@ caminho_atual = os.getcwd()
 status_painel = ""
 linha_alterada = -1
 coluna_alterada = -1
-
+counter = 0
 
 def classificar (dataframe: pd.DataFrame):
     return dataframe.sort_values(by=['MELHOR PRIO', 'TEMPO LOC', 'ANTIGUIDADE'], ascending=[True, False, True], inplace=True)
@@ -100,21 +101,25 @@ def pegar_LOC_atual(linha):
 
         
 def pegar_OMs_do_COMPREP():
-    global df_relatorio_tp
+    global df_TP_BMA
+    global df_TP
     global df_OMs
     
-    # 1. Carrega a tabela para extrair as OMs e Localidades
-    try:
-        df_relatorio_tp = pd.read_excel(endereco_do_arquivo, sheet_name="RELATÓRIO TP BMA")
-    except:
-        try:
-            df_relatorio_tp = pd.read_excel(endereco_do_arquivo, sheet_name="RELATÓRIO TP")
-        except:
-            # Caso de emergência: cria DF vazio
-            df_relatorio_tp = pd.DataFrame(columns=["Unidade", "Localidade"])
+    # Tenta usar a TP BMA primeiro (que já estará na memória), se não existir, usa a TP Geral
+    if 'df_TP_BMA' in globals() and not df_TP_BMA.empty:
+        df_referencia = df_TP_BMA.copy()
+    elif 'df_TP' in globals() and not df_TP.empty:
+        df_referencia = df_TP.copy()
+    else:
+        # Se não tiver nada carregado (nem banco nem excel), retorna vazio
+        return pd.DataFrame(columns=["OMs", "Localidade", "Taxa de Ocup.", "Vagas"])
 
-    # 2. Cria a lista de OMs únicas
-    df_OMs = df_relatorio_tp['Unidade'].drop_duplicates()
+    # 2. Cria a lista de OMs únicas a partir dos dados em memória
+    if 'Unidade' in df_referencia.columns:
+        df_OMs = df_referencia['Unidade'].drop_duplicates()
+    else:
+        df_OMs = pd.DataFrame(columns=["Unidade"])
+
     df_OMs.dropna(inplace=True)
     df_OMs = df_OMs.to_frame(name="OMs")
     df_OMs.reset_index(drop=True, inplace=True)
@@ -123,17 +128,13 @@ def pegar_OMs_do_COMPREP():
     df_OMs["Taxa de Ocup."] = ""
     df_OMs["Vagas"] = ""
     
-    # 4. MAPEAMENTO DE LOCALIDADE (O SEGREDO ESTÁ AQUI)
-    # Cria um dicionário {OM: Localidade} removendo duplicatas
+    # 4. MAPEAMENTO DE LOCALIDADE
     try:
-        if 'Localidade' in df_relatorio_tp.columns:
-            dict_localidades = df_relatorio_tp.set_index('Unidade')['Localidade'].to_dict()
-            # Mapeia para a coluna Localidade do df_OMs
+        if 'Localidade' in df_referencia.columns:
+            dict_localidades = df_referencia.set_index('Unidade')['Localidade'].to_dict()
             df_OMs["Localidade"] = df_OMs["OMs"].map(dict_localidades)
         else:
-            # Tenta pegar pela coluna índice 1 se o nome não for 'Localidade'
-            # Ajuste o iloc[:, [0, 1]] conforme seu excel (0=OM, 1=Localidade)
-            temp_df = df_relatorio_tp.iloc[:, [0, 1]] 
+            temp_df = df_referencia.iloc[:, [0, 1]] 
             temp_df.columns = ['Unidade', 'Localidade']
             dict_localidades = temp_df.set_index('Unidade')['Localidade'].to_dict()
             df_OMs["Localidade"] = df_OMs["OMs"].map(dict_localidades)
@@ -142,7 +143,6 @@ def pegar_OMs_do_COMPREP():
         df_OMs["Localidade"] = ""
 
     return df_OMs
-counter = 0
 class SplashScreen (QMainWindow):
     def __init__(self):
         QMainWindow.__init__(self)
@@ -216,6 +216,10 @@ class UI(QMainWindow):
         self.ui.tableWidget.cellChanged.connect(self.celula_alterada)
         self.ui.tableWidget_2.cellDoubleClicked.connect(lambda: self.escolher_OM_no_painel_direito())
 
+
+        # --- NOVO: Tenta carregar do banco ao abrir ---
+        self.carregar_tudo_do_banco()
+        # ----------------------------------------------
 
         self.show()
 
@@ -899,10 +903,143 @@ class UI(QMainWindow):
             self.Carregar_Dados_dos_militares()  # chama a função para carregar os dados
 
 
-    #     #TODO apagar essa linha antes de entregar
-    #     self.ui.tableWidget.setCurrentCell(5,41)
-    #     self.carregar_Relat_rio_TP()
-        ####################################
+    ##############################################################################
+    ##############################################################################
+    ##############################################################################
+    #### FUNÇÃO PRINCIPAL DE CARREGAMENTO DE DADOS DOS MILITARES #################
+    ##############################################################################
+
+    # ----------------------------------------------------------------------
+    # FUNÇÕES DE BANCO DE DADOS (SQLite) - Adicione na classe UI
+    # ----------------------------------------------------------------------
+    def salvar_tudo_no_banco(self):
+        """Salva os dados atuais no arquivo SQLite."""
+        global df_plamov_compilado
+        global df_TP
+        global df_TP_BMA
+        
+        try:
+            conn = sqlite3.connect("tesserato_dados.db")
+            
+            if 'df_plamov_compilado' in globals() and not df_plamov_compilado.empty:
+                # Converte para string para evitar erros de tipo no SQLite
+                df_plamov_compilado.astype(str).to_sql("plamov", conn, if_exists="replace", index=False)
+                
+            if 'df_TP' in globals() and not df_TP.empty:
+                df_TP.astype(str).to_sql("tp_geral", conn, if_exists="replace", index=False)
+                
+            if 'df_TP_BMA' in globals() and not df_TP_BMA.empty:
+                df_TP_BMA.astype(str).to_sql("tp_bma", conn, if_exists="replace", index=False)
+                
+            conn.close()
+            print("Dados salvos no Banco de Dados com sucesso!")
+        except Exception as e:
+            print(f"Erro ao salvar no banco: {e}")
+
+    def carregar_tudo_do_banco(self):
+        """Tenta carregar os dados do SQLite na inicialização."""
+        global df_plamov_compilado
+        global df_TP
+        global df_TP_BMA
+        global df_OMs
+        global status_painel
+        
+        if not os.path.exists("tesserato_dados.db"):
+            print("Nenhum banco de dados encontrado. Aguardando carga manual.")
+            return False 
+
+        try:
+            conn = sqlite3.connect("tesserato_dados.db")
+            
+            # Carrega PLAMOV
+            try:
+                df_plamov_compilado = pd.read_sql("SELECT * FROM plamov", conn)
+                df_plamov_compilado.fillna("", inplace=True)
+                # Garante que a coluna de ordem existe
+                if 'ordem original' not in df_plamov_compilado.columns:
+                     df_plamov_compilado['ordem original'] = df_plamov_compilado.index
+            except:
+                pass
+
+            # Carrega TP Geral
+            try:
+                df_TP = pd.read_sql("SELECT * FROM tp_geral", conn)
+            except:
+                pass
+
+            # Carrega TP BMA
+            try:
+                df_TP_BMA = pd.read_sql("SELECT * FROM tp_bma", conn)
+                # Converte números de volta (banco traz como texto as vezes)
+                for col in ['TLP Ano Corrente', 'Existentes']:
+                    if col in df_TP_BMA.columns:
+                        df_TP_BMA[col] = pd.to_numeric(df_TP_BMA[col], errors='coerce').fillna(0)
+            except:
+                pass
+
+            conn.close()
+
+            # Se carregou algo, monta a tela
+            if 'df_plamov_compilado' in globals() and not df_plamov_compilado.empty:
+                print("Dados recuperados do Banco de Dados!")
+                
+                # 1. Gera df_OMs baseado no que carregou do banco
+                df_OMs = pegar_OMs_do_COMPREP()
+                
+                # 2. Configura a Tabela Visual
+                self.configurar_tabela_visual_pelo_banco()
+                
+                status_painel = "carregado"
+                return True
+            
+        except Exception as e:
+            print(f"Erro ao ler do banco: {e}")
+            return False
+
+    def configurar_tabela_visual_pelo_banco(self):
+        """Reconstroi a visualização da tabela sem precisar do Excel."""
+        global df_plamov_compilado
+        
+        # Definição das colunas (mesma lógica do Carregar_Dados)
+        COLUNAS_DESEJADAS = [
+            "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "SUB ESP",
+            "LOC 1", "LOC 2", "LOC 3", "CÔNJUGE DA FAB?", "DADOS CÔNJUGE", "PLAMOV"
+        ]
+        
+        colunas_existentes = [col for col in COLUNAS_DESEJADAS if col in df_plamov_compilado.columns]
+        
+        try:
+            mapa_indices = {nome: df_plamov_compilado.columns.get_loc(nome) for nome in colunas_existentes}
+            indices_a_exibir = [mapa_indices[nome] for nome in colunas_existentes]
+        except:
+            return
+
+        self.ui.tableWidget.setColumnCount(len(colunas_existentes))
+        self.ui.tableWidget.setRowCount(df_plamov_compilado.shape[0])
+        self.ui.tableWidget.setHorizontalHeaderLabels(colunas_existentes)
+        
+        # Configurações visuais (Selection Behavior)
+        self.ui.tableWidget.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.ui.tableWidget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+
+        coluna_tableWidget_esquerda = 0
+
+        for i in range(df_plamov_compilado.shape[0]): 
+            for df_index in indices_a_exibir: 
+                valor_celula = str(df_plamov_compilado.iloc[i, df_index])
+                item = QtWidgets.QTableWidgetItem(valor_celula)
+                self.ui.tableWidget.setItem(i, coluna_tableWidget_esquerda, item)
+                
+                if i % 2:
+                    self.ui.tableWidget.item(i, coluna_tableWidget_esquerda).setBackground(QtGui.QColor(100, 139, 245))
+                    
+                coluna_tableWidget_esquerda += 1
+            coluna_tableWidget_esquerda = 0
+
+    ##############################################################################
+    ##### FIM DA FUNÇÃO PRINCIPAL DE CARREGAMENTO DE DADOS DOS MILITARES #########
+    ##############################################################################
+    ##############################################################################
 
     def Carregar_Dados_dos_militares(self):
         global endereco_do_arquivo
@@ -974,7 +1111,9 @@ class UI(QMainWindow):
             df_OMs = pegar_OMs_do_COMPREP() # Carrega a lista de OMs
             self.carregar_Relat_rio_TP()    # Carrega as tabelas TP e TP BMA
             
-            
+            # --- NOVO: SALVAR NO BANCO ---
+            self.salvar_tudo_no_banco()
+            # -----------------------------
         
         else:
             # Se o usuário cancelar ou o arquivo for inválido, não faz nada
