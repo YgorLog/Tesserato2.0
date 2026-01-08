@@ -34,13 +34,8 @@ from SplashScreen_ui import Ui_SplashScreen
 #     return os.path.join(base_path, relative_path)
 
 
-#DONE: MENU PARA SALVAR
-#DONE: splash screen com o DOM do IAOp
-#DONE: Deixar responsivo
-#DONE: Passar para a próxima linha do painel da esquerda, assim a om for escolhida
-#DONE: O QUE ACONTECE SE O USUÁRIO COLOCAR UMA OM E DEPOIS TROCAR? O CÓDIGO VAI FICAR TROCANDO AS VAGAS E EXISTENTES TODA A VEZ? MELHOR REVER COMO LEVANTAR AS VAGAS, TALVEZ SEJA MELHOR FAZER UM LEVANTAMENTO SOMANDO COM A COLUNA PLAMOV
+############################################################################################
 
-#DONE: alterar a OM ao clicar no painel esquerdo
 #????: (VALE A PENA?, JA QUE A LINHA ATIVA VAI PASSAR PARA A PRÓXIMA E O PAINEL VAI SER ATUALIZADO) TAFERA: mudar as vagas e taxa de ocupação assim que o usuário selecionar a OM de destino
 #DONE: design gráfico
 #????: Dividir os menus em "Páginas" e "Carregar"
@@ -70,9 +65,9 @@ def pegar_quadro(linha):
 def pegar_especialidade(linha):
     especialidade = df_plamov_compilado["ESP"][int(linha)]
     return especialidade
-def pegar_subespecialidade(linha):
+def pegar_Projeto(linha):
     try:
-        sub = df_plamov_compilado["SUB ESP"][int(linha)]
+        sub = df_plamov_compilado["PROJETO"][int(linha)]
         return str(sub).strip() # Remove espaços extras por segurança
     except:
         return ""
@@ -284,7 +279,7 @@ class UI(QMainWindow):
     #     posto = str(pegar_posto(linha)).strip()
     #     quadro = str(pegar_quadro(linha)).strip()
     #     especialidade = str(pegar_especialidade(linha)).strip()
-    #     subespecialidade = str(pegar_subespecialidade(linha)).strip()
+    #     Projeto = str(pegar_Projeto(linha)).strip()
         
     #     loc1 = pegar_LOC1(linha)
     #     loc2 = pegar_LOC2(linha)
@@ -297,7 +292,7 @@ class UI(QMainWindow):
     #     self.ui.tableWidget_2.setHorizontalHeaderLabels(["OM", "Taxa de Ocup.", "Vagas"])
 
     #     # DEBUG: Confirma o que o código está lendo
-    #     print(f"DEBUG: Militar selecionado -> Esp: '{especialidade}' | Sub: '{subespecialidade}'")
+    #     print(f"DEBUG: Militar selecionado -> Esp: '{especialidade}' | Sub: '{Projeto}'")
 
     #     for k in range(df_OMs.shape[0]):
     #         chegando = 0
@@ -315,7 +310,7 @@ class UI(QMainWindow):
     #                 (df_TP_BMA['Unidade'].astype(str).str.strip() == str(df_OMs.iloc[k,0]).strip()) & 
     #                 (df_TP_BMA['Posto'].astype(str).str.strip() == posto) & 
     #                 (df_TP_BMA['Quadro'].astype(str).str.strip() == quadro) & 
-    #                 (df_TP_BMA['Subespecialidade'].astype(str).str.strip() == subespecialidade)
+    #                 (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
     #             )
                 
     #             vagas_OM_selecionada = df_TP_BMA[filtro_bma]
@@ -324,7 +319,7 @@ class UI(QMainWindow):
     #                 # --- DEBUG DETALHADO (O CÓDIGO VAI TE MOSTRAR O QUE ACHOU) ---
     #                 if str(df_OMs.iloc[k,0]) == "2/2 GT":
     #                     print("-" * 50)
-    #                     print(f"ALERTA: O código achou uma linha no Excel para 2/2 e {subespecialidade}!")
+    #                     print(f"ALERTA: O código achou uma linha no Excel para 2/2 e {Projeto}!")
     #                     print("Aqui está a linha exata que o Pandas leu do seu arquivo:")
     #                     print(vagas_OM_selecionada.to_string())
     #                     print("-" * 50)
@@ -332,11 +327,11 @@ class UI(QMainWindow):
 
     #                 # Cálculos de Chegando/Saindo
     #                 chegando = df_plamov_compilado.query(
-    #                     f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `SUB ESP` == '{subespecialidade}'"
+    #                     f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}'"
     #                 ).shape[0]
                     
     #                 saindo = df_plamov_compilado.query(
-    #                     f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `SUB ESP` == '{subespecialidade}' & PLAMOV != ''"
+    #                     f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}' & PLAMOV != ''"
     #                 ).shape[0]
                     
     #                 # Extração dos dados da TP BMA
@@ -369,7 +364,7 @@ class UI(QMainWindow):
     #             else:
     #                 # Se não achou "Motores" na tabela para "2/2", assume que não tem vaga (0)
     #                 if str(df_OMs.iloc[k,0]) == "2/2 GT":
-    #                     print(f"NÃO achou na TP BMA para 2/2 GT: {subespecialidade} (Vai retornar Sem TP)")
+    #                     print(f"NÃO achou na TP BMA para 2/2 GT: {Projeto} (Vai retornar Sem TP)")
                     
     #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
     #                 df_OMs.loc[k,"Vagas"] = ""
@@ -580,7 +575,7 @@ class UI(QMainWindow):
         posto = str(pegar_posto(linha)).strip()
         quadro = str(pegar_quadro(linha)).strip()
         especialidade = str(pegar_especialidade(linha)).strip()
-        subespecialidade = str(pegar_subespecialidade(linha)).strip()
+        Projeto = str(pegar_Projeto(linha)).strip()
         
         loc1 = pegar_LOC1(linha)
         loc2 = pegar_LOC2(linha)
@@ -610,13 +605,13 @@ class UI(QMainWindow):
             # A comparação agora é segura porque usamos .strip() acima
             if especialidade == "BMA":
                 # if k == 0:
-                #     self.contar_militares_mesma_subespecialidade()
+                #     self.contar_militares_mesma_Projeto()
                 # Filtro robusto para achar a vaga na tabela BMA
                 filtro_bma = (
                     (df_TP_BMA['Unidade'].astype(str).str.strip() == str(df_OMs.iloc[k,0]).strip()) & 
                     (df_TP_BMA['Posto'].astype(str).str.strip() == posto) & 
                     (df_TP_BMA['Quadro'].astype(str).str.strip() == quadro) & 
-                    (df_TP_BMA['Subespecialidade'].astype(str).str.strip() == subespecialidade)
+                    (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
                 )
                 
                 vagas_OM_selecionada = df_TP_BMA[filtro_bma]
@@ -635,16 +630,16 @@ class UI(QMainWindow):
 
                     # 2. Calcula Movimentação (USANDO O FILTRO CORRIGIDO)
                     chegando = df_plamov_compilado.query(
-                        f"PLAMOV == '{df_OMs.iloc[k,0]}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `SUB ESP` == '{subespecialidade}'"
+                        f"PLAMOV == '{df_OMs.iloc[k,0]}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}'"
                     ).shape[0]
                     
                     saindo = df_plamov_compilado.query(
-                        f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `SUB ESP` == '{subespecialidade}' & PLAMOV != ''"
+                        f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}' & PLAMOV != ''"
                     ).shape[0]
 
                     # --- DEBUG VISUAL (Opcional: Pode remover depois) ---
                     # if chegando > 0 or saindo > 0:
-                    #     print(f"OM {df_OMs.iloc[k,0]}: Chegando={chegando}, Saindo={saindo} (Sub: {subespecialidade})")
+                    #     print(f"OM {df_OMs.iloc[k,0]}: Chegando={chegando}, Saindo={saindo} (Sub: {Projeto})")
                     # ----------------------------------------------------
                     
                     # 3. Extrai dados da TP BMA (Mantido igual)
@@ -750,17 +745,17 @@ class UI(QMainWindow):
         self.analisar_impacto_transferencia()
         # Note: Não há mais limpeza de colunas aqui, pois elas são redefinidas no início da função.
     
-    def contar_militares_mesma_subespecialidade(self):
+    def contar_militares_mesma_Projeto(self):
         global df_plamov_compilado
         
         # 1. Identifica a linha selecionada (Índice atual)
         linha_atual = self.linha_ativa_dados_militares()
         
-        # 2. Pega a subespecialidade do militar selecionado
-        subespecialidade_alvo = pegar_subespecialidade(linha_atual)
+        # 2. Pega a Projeto do militar selecionado
+        Projeto_alvo = pegar_Projeto(linha_atual)
         
         # 3. Validação
-        if not subespecialidade_alvo or subespecialidade_alvo == "nan":
+        if not Projeto_alvo or Projeto_alvo == "nan":
             return 0
 
         # ==============================================================================
@@ -772,7 +767,7 @@ class UI(QMainWindow):
         df_abaixo = df_plamov_compilado.iloc[linha_atual + 1 : ]
         
         # 4. Filtra apenas nesse DataFrame "recortado"
-        filtro = df_abaixo["SUB ESP"].astype(str).str.strip() == subespecialidade_alvo.strip()
+        filtro = df_abaixo["PROJETO"].astype(str).str.strip() == Projeto_alvo.strip()
         
         # Conta as linhas resultantes
         quantidade = df_abaixo[filtro].shape[0]
@@ -780,7 +775,7 @@ class UI(QMainWindow):
         # 5. Retorno/Exibição
         print(f"--- CONTAGEM ---")
         print(f"Militar atual (Linha): {linha_atual}")
-        print(f"Subespecialidade: {subespecialidade_alvo}")
+        print(f"Projeto: {Projeto_alvo}")
         print(f"Militares abaixo (na fila): {quantidade}")
         
         return quantidade
@@ -798,24 +793,24 @@ class UI(QMainWindow):
         
         # Cuidado: Pegar a OM ATUAL (Origem), não o destino (PLAMOV)
         om_origem = str(df_plamov_compilado["OM ATUAL"].iloc[linha_atual]).strip()
-        subespecialidade = pegar_subespecialidade(linha_atual)
+        Projeto = pegar_Projeto(linha_atual)
         
-        if not subespecialidade or subespecialidade == "nan":
+        if not Projeto or Projeto == "nan":
             return # Sem dados para analisar
 
         # 2. Diagnóstico da OM de Origem (TP BMA)
-        # Filtra a TP BMA pela OM e Subespecialidade (somando todos os postos)
+        # Filtra a TP BMA pela OM e Projeto (somando todos os postos)
         filtro_tp = (
             (df_TP_BMA['Unidade'].astype(str).str.strip() == om_origem) & 
-            (df_TP_BMA['Subespecialidade'].astype(str).str.strip() == subespecialidade)
+            (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
         )
         dados_tp = df_TP_BMA[filtro_tp]
         
         if dados_tp.empty:
-            print(f"ALERTA: OM de origem {om_origem} não tem previsão na TP para {subespecialidade}.")
+            print(f"ALERTA: OM de origem {om_origem} não tem previsão na TP para {Projeto}.")
             return
 
-        # Soma TLP e Existentes (caso haja distinção de postos, somamos tudo daquela subespecialidade)
+        # Soma TLP e Existentes (caso haja distinção de postos, somamos tudo daquela Projeto)
         # Ajuste os nomes das colunas 'TLP Ano Corrente' e 'Existentes' se necessário
         try:
             total_meta = dados_tp['TLP Ano Corrente'].sum()
@@ -839,14 +834,14 @@ class UI(QMainWindow):
             # 5. Busca de Reservas (Militares abaixo na lista)
             df_abaixo = df_plamov_compilado.iloc[linha_atual + 1 : ]
             
-            # Filtra apenas pela mesma subespecialidade (conforme sua regra)
-            reservas = df_abaixo[df_abaixo["SUB ESP"].astype(str).str.strip() == subespecialidade].shape[0]
+            # Filtra apenas pela mesma Projeto (conforme sua regra)
+            reservas = df_abaixo[df_abaixo["PROJETO"].astype(str).str.strip() == Projeto].shape[0]
 
             # 6. GERAÇÃO DO ALERTA (Mensagem Prática)
             msg_alerta = (
                 f"⚠️ ATENÇÃO: Se esse militar for transferido, a taxa de ocupação da {om_origem} diminuirá para {taxa_projetada:.1%} "
                 f"(Meta: 70%).\n"
-                f"RESERVAS DISPONÍVEIS ABAIXO: {reservas} militares de {subespecialidade}."
+                f"RESERVAS DISPONÍVEIS ABAIXO: {reservas} militares de {Projeto}."
             )
             
             print(msg_alerta) # Mostra no terminal para debug
@@ -860,7 +855,7 @@ class UI(QMainWindow):
 
         else:
             # Se estiver tudo seguro
-            self.ui.statusbar.showMessage(f"✔ Saída segura. {om_origem} manterá taxa de {taxa_projetada:.1%} (Sub: {subespecialidade})")
+            self.ui.statusbar.showMessage(f"✔ Saída segura. {om_origem} manterá taxa de {taxa_projetada:.1%} (Sub: {Projeto})")
             self.ui.statusbar.setStyleSheet("color: green;")
     
     def marcar_saram_com_bandeira(self, linha_alvo):
@@ -1005,7 +1000,7 @@ class UI(QMainWindow):
         
         # Definição das colunas (mesma lógica do Carregar_Dados)
         COLUNAS_DESEJADAS = [
-            "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "SUB ESP",
+            "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "PROJETO",
             "LOC 1", "LOC 2", "LOC 3", "CÔNJUGE DA FAB?", "DADOS CÔNJUGE", "PLAMOV"
         ]
         
@@ -1066,7 +1061,7 @@ class UI(QMainWindow):
             
             # --- Configuração das Colunas (Sua lógica nova) ---
             COLUNAS_DESEJADAS = [
-                "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "SUB ESP",
+                "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "PROJETO",
                 "LOC 1", "LOC 2", "LOC 3", "CÔNJUGE DA FAB?", "DADOS CÔNJUGE", "PLAMOV"
             ]
 
@@ -1145,14 +1140,14 @@ class UI(QMainWindow):
             # print("Colunas encontradas no Excel (TP BMA):", df_TP_BMA.columns.tolist())
 
             # 2. PADRONIZAÇÃO DE NOMES
-            # O código espera "Subespecialidade", mas o Excel pode ter variações.
+            # O código espera "Projeto", mas o Excel pode ter variações.
             # Adicione aqui qualquer outra variação que seu Excel possa ter.
             mapa_correcao = {
-                "Sub Especialidade": "Subespecialidade",
-                "SUB ESP": "Subespecialidade",
-                "Sub Esp": "Subespecialidade",
-                "Sub-Especialidade": "Subespecialidade",
-                "Subespecialidade ": "Subespecialidade" # Caso tenha espaço no final
+                "Sub Especialidade": "Projeto",
+                "PROJETO": "Projeto",
+                "Sub Esp": "Projeto",
+                "Sub-Especialidade": "Projeto",
+                "Projeto ": "Projeto" # Caso tenha espaço no final
             }
             df_TP_BMA.rename(columns=mapa_correcao, inplace=True)
             
