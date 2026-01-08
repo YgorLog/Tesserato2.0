@@ -16,6 +16,8 @@ import pandas as pd
 from menu_ui_ui import Ui_MainWindow
 from SplashScreen_ui import Ui_SplashScreen
 
+#TODO : Ao carregar um arquivo excel (Menu >> Carregar arquivos >> Dados dos militares [e selecionar um arquivo excel compatível]) com dados já carregados, demora muito para o segundo carregamento
+
 ############################################################################################
 ##################################   FONTE DA FUNÇÃO ABAIXO    #############################
 ############################################################################################
@@ -248,7 +250,8 @@ class UI(QMainWindow):
             coluna_alterada = coluna
             if coluna_alterada == 12:
                 df_plamov_compilado.loc[linha_alterada, "PLAMOV"] = self.ui.tableWidget.item(linha_alterada, coluna_alterada).text()   
-            
+            self.salvar_tudo_no_banco()
+
     #passar as páginas
     def Pag_Militares(self):
         self.ui.stackedWidget.setCurrentIndex(0)
@@ -1290,6 +1293,7 @@ class UI(QMainWindow):
             coluna_ativa_painel_esquerda = self.coluna_ativa_dados_militares()
 
             self.ui.tableWidget.setCurrentCell(linha_ativa_painel_esquerda + 1, coluna_ativa_painel_esquerda)
+            self.salvar_tudo_no_banco()
             self.atualizar_Painel_Direita()
         #     self.ui.tableWidget_2.setItem(linha_selecionada_painel_esquerda, coluna_ativa_painel_esquerda)
         #     item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[k,i]))
