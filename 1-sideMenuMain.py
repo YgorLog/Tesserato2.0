@@ -413,14 +413,14 @@ class UI(QMainWindow):
     def abrir_menu_filtro(self, position, tabela_alvo, dic_filtros):
         col_clicada = tabela_alvo.horizontalHeader().logicalIndexAt(position)
         
-        # Coleta valores... (código de coleta mantém igual)
+        # Coleta valores (mantido igual)
         valores_coluna = []
         for row in range(tabela_alvo.rowCount()):
             linha_valida_pelo_contexto = True
             for col_filtro, estado_filtro in dic_filtros.items():
                 if col_filtro == col_clicada:
                     continue
-                # ... (lógica de validação de contexto igual a anterior) ...
+                
                 if isinstance(estado_filtro, dict):
                     valores_permitidos = estado_filtro.get('selecionados', [])
                     f_maior = estado_filtro.get('maior', '')
@@ -439,7 +439,6 @@ class UI(QMainWindow):
                 if linha_valida_pelo_contexto and (f_maior or f_menor):
                     val_num = self.converter_para_float(valor_teste)
                     if val_num is not None:
-                        # NOTA: Aqui já atualizamos a lógica de contexto para >= e <=
                         if f_maior and not (val_num >= float(f_maior)):
                             linha_valida_pelo_contexto = False
                         if f_menor and not (val_num <= float(f_menor)):
@@ -456,15 +455,17 @@ class UI(QMainWindow):
 
         filtro_atual = dic_filtros.get(col_clicada)
 
-        # --- DECISÃO: MOSTRAR CAMPOS NUMÉRICOS? ---
-        mostrar_numerico = True
+        # --- LÓGICA CORRIGIDA AQUI ---
         
-        # Se for a Tabela da Direita E a Coluna for a 0 (OM), esconde
-        if tabela_alvo == self.ui.tableWidget_2 and col_clicada == 0:
-            mostrar_numerico = False
-            
-        # Opcional: Se quiser esconder para todas as colunas de texto da esquerda também:
-        # if tabela_alvo == self.ui.tableWidget: mostrar_numerico = False 
+        # 1. Definimos como False por padrão (Assim o painel da esquerda nunca terá)
+        mostrar_numerico = False
+        
+        # 2. Só habilitamos SE for o Painel da Direita (tableWidget_2) 
+        #    E a coluna for diferente de 0 (OM)
+        if tabela_alvo == self.ui.tableWidget_2 and col_clicada != 0:
+            mostrar_numerico = True
+
+        # -----------------------------
 
         menu = FilterMenu(valores_coluna, f"Filtro", self, active_filter=filtro_atual, enable_numeric=mostrar_numerico)
         
