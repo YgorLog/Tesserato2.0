@@ -15,6 +15,10 @@ import os
 import pandas as pd
 from menu_ui_ui import Ui_MainWindow
 from SplashScreen_ui import Ui_SplashScreen
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import numpy as np
 
 #TODO : Ao carregar um arquivo excel (Menu >> Carregar arquivos >> Dados dos militares [e selecionar um arquivo excel compatível]) com dados já carregados, demora muito para o segundo carregamento
 
@@ -173,7 +177,6 @@ class SplashScreen (QMainWindow):
 class FilterMenu(QtWidgets.QMenu):
     filterApplied = QtCore.pyqtSignal()
 
-    # Adicionei o argumento 'enable_numeric=True'
     def __init__(self, values, title, parent=None, active_filter=None, enable_numeric=True):
         super().__init__(title, parent)
         self.values = sorted(list(set(str(v) for v in values if v is not None)))
@@ -189,13 +192,12 @@ class FilterMenu(QtWidgets.QMenu):
 
         self.setStyleSheet("QMenu { background-color: white; border: 1px solid gray; }")
         
-        # --- 0. CAMPOS NUMÉRICOS (Só cria se enable_numeric for True) ---
+        # --- 0. CAMPOS NUMÉRICOS (Maior/Menor) ---
         if enable_numeric:
             self.widget_numerico = QtWidgets.QWidget()
             layout_num = QtWidgets.QGridLayout(self.widget_numerico)
             layout_num.setContentsMargins(5, 5, 5, 5)
 
-            # Mudei os textos para indicar "Ou Igual"
             lbl_maior = QtWidgets.QLabel("Maior ou igual (>=):")
             self.edt_maior = QtWidgets.QLineEdit()
             self.edt_maior.setPlaceholderText("Ex: 70")
@@ -216,7 +218,29 @@ class FilterMenu(QtWidgets.QMenu):
             self.addAction(act_num)
             self.addSeparator()
 
-        # --- 1. ÁREA DE ROLAGEM E CHECKBOXES (Mantido igual) ---
+        # =================================================================
+        # --- 0.5 CAMPO DE BUSCA (TEXTO) --- NOVIDADE AQUI
+        # =================================================================
+        self.widget_busca = QtWidgets.QWidget()
+        layout_busca = QtWidgets.QVBoxLayout(self.widget_busca)
+        layout_busca.setContentsMargins(5, 5, 5, 5)
+        
+        self.edt_busca = QtWidgets.QLineEdit()
+        self.edt_busca.setPlaceholderText("Pesquisar...")
+        # Ícone de lupa (opcional, só visual)
+        self.edt_busca.setClearButtonEnabled(True) 
+        
+        # Conecta o sinal de digitação à função de filtragem
+        self.edt_busca.textChanged.connect(self.filtrar_lista_checkbox)
+        
+        layout_busca.addWidget(self.edt_busca)
+        
+        act_busca = QtWidgets.QWidgetAction(self)
+        act_busca.setDefaultWidget(self.widget_busca)
+        self.addAction(act_busca)
+        # =================================================================
+
+        # --- 1. ÁREA DE ROLAGEM E CHECKBOXES ---
         self.widget_conteudo = QtWidgets.QWidget()
         self.layout_conteudo = QtWidgets.QVBoxLayout(self.widget_conteudo)
         self.layout_conteudo.setContentsMargins(5, 5, 5, 5)
@@ -224,7 +248,7 @@ class FilterMenu(QtWidgets.QMenu):
 
         self.cb_all = QtWidgets.QCheckBox(" (Selecionar Tudo)", self.widget_conteudo)
         
-        # Lógica do Selecionar Tudo
+        # Lógica inicial do Selecionar Tudo
         lista_selecionados = self.state['selecionados']
         if len(lista_selecionados) == len(self.values):
              self.cb_all.setChecked(True)
@@ -279,28 +303,59 @@ class FilterMenu(QtWidgets.QMenu):
         action_btn.setDefaultWidget(btn_apply)
         self.addAction(action_btn)
 
+    # --- NOVA FUNÇÃO DE FILTRAGEM ---
+    def filtrar_lista_checkbox(self, texto):
+        """Esconde ou mostra os checkboxes baseado no texto digitado."""
+        texto = texto.lower()
+        visiveis = 0
+        
+        for cb in self.check_boxes:
+            if texto in cb.text().lower():
+                cb.setVisible(True)
+                visiveis += 1
+            else:
+                cb.setVisible(False)
+        
+        # Opcional: Se a busca não retornar nada, desabilita o "Selecionar Tudo"
+        self.cb_all.setEnabled(visiveis > 0)
+    # --------------------------------
+
     def emitir_e_fechar(self):    
         self.filterApplied.emit()
         self.close()
     
     def toggle_all(self, state):
+        """
+        Marca/Desmarca. 
+        ATENÇÃO: Agora só afeta os itens VISÍVEIS (filtrados).
+        Isso permite buscar "SGT", clicar em selecionar tudo, e marcar apenas os SGTs.
+        """
         is_checked = (state == QtCore.Qt.CheckState.Checked.value)
+        
         for cb in self.check_boxes:
-            cb.blockSignals(True)
-            cb.setChecked(is_checked)
-            cb.blockSignals(False)
+            # Só altera o estado se o checkbox estiver visível (passou na busca)
+            if cb.isVisible():
+                cb.blockSignals(True)
+                cb.setChecked(is_checked)
+                cb.blockSignals(False)
+        
+        # Após alterar os visíveis, precisamos verificar se isso afetou o estado global
+        # para manter a consistência interna (opcional, mas bom pra UX)
+        # self.atualizar_estado_selecionar_tudo() # Pode causar loop visual, melhor deixar sem por enquanto.
 
     def atualizar_estado_selecionar_tudo(self):
+        # Verifica apenas checkboxes visíveis? Não, verifica todos para saber se "TUDO" está marcado.
+        # Mas para a lógica visual do checkbox pai, verificamos se todos estão True.
         todos_marcados = all(cb.isChecked() for cb in self.check_boxes)
+        
         self.cb_all.blockSignals(True)
         self.cb_all.setChecked(todos_marcados)
         self.cb_all.blockSignals(False)
 
-    # Função nova que retorna o estado completo
     def get_filter_state(self):
+        # Pega todos que estão marcados (mesmo os ocultos pela busca)
         selecionados = [cb.text() for cb in self.check_boxes if cb.isChecked()]
         
-        # Verifica se os campos existem antes de tentar ler o texto
         if hasattr(self, 'edt_maior'):
             val_maior = self.edt_maior.text().strip()
             val_menor = self.edt_menor.text().strip()
@@ -321,6 +376,12 @@ class FilterMenu(QtWidgets.QMenu):
         else:
             super().keyPressEvent(event)
 
+class GraficoCanvas(FigureCanvas):
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
+        # Configuração da Figura
+        self.fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = self.fig.add_subplot(111) 
+        super(GraficoCanvas, self).__init__(self.fig)
 
 class UI(QMainWindow):
     global df_plamov_compilado
@@ -338,6 +399,27 @@ class UI(QMainWindow):
         
         # 2. (Opcional) Permite selecionar apenas uma linha por vez (evita bagunça)
         self.ui.tableWidget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+
+        # =================================================================
+        # 1. CRIAÇÃO DA PÁGINA DE GRÁFICOS (VIA CÓDIGO)
+        # =================================================================
+        self.page_graficos = QtWidgets.QWidget()
+        self.layout_graficos = QtWidgets.QVBoxLayout(self.page_graficos)
+        # Adiciona essa nova página ao seu StackedWidget existente
+        self.ui.stackedWidget.addWidget(self.page_graficos) 
+        
+        # =================================================================
+        # 2. CRIAÇÃO DO BOTÃO NO MENU (VIA CÓDIGO)
+        # =================================================================
+        # Criamos uma ação nova chamada "Dashboard / Gráficos"
+        self.actionGraficos = QtGui.QAction("Dashboard / Gráficos", self)
+        # Adicionamos ao menu existente "menuMenu"
+        self.ui.menuMenu.addAction(self.actionGraficos)
+        
+        # Conectamos o botão à função de abrir a página
+        self.actionGraficos.triggered.connect(lambda: self.Pag_Graficos())
+
+        # =================================================================
 
         # 3. Define a cor do destaque (Amarelo com letra preta) usando CSS (QSS)
         # O 'outline: none' remove aquele pontilhado em volta da célula
@@ -583,7 +665,7 @@ class UI(QMainWindow):
         if status_painel == "carregado":
             linha_alterada = linha
             coluna_alterada = coluna
-            if coluna_alterada == 12:
+            if coluna_alterada == 15:
                 df_plamov_compilado.loc[linha_alterada, "PLAMOV"] = self.ui.tableWidget.item(linha_alterada, coluna_alterada).text()   
             self.salvar_tudo_no_banco()
 
@@ -1126,6 +1208,126 @@ class UI(QMainWindow):
         
         return quantidade
     
+    # --- FUNÇÕES PARA GRÁFICOS ---
+
+    def Pag_Graficos(self):
+        # Muda para a página nova que criamos (o índice é o último da lista)
+        indice_graficos = self.ui.stackedWidget.count() - 1
+        self.ui.stackedWidget.setCurrentIndex(indice_graficos)
+        
+        # Gera o gráfico atualizado
+        self.gerar_dashboard()
+
+    def gerar_dashboard(self):
+        global df_plamov_compilado
+        global df_OMs # Precisamos disso para saber a localidade das OMs
+        
+        # 1. Limpa layout anterior
+        for i in reversed(range(self.layout_graficos.count())): 
+            item = self.layout_graficos.itemAt(i)
+            if item.widget():
+                item.widget().setParent(None)
+
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            aviso = QtWidgets.QLabel("Nenhum dado carregado.")
+            aviso.setStyleSheet("font-size: 18px; color: gray; qproperty-alignment: AlignCenter;")
+            self.layout_graficos.addWidget(aviso)
+            return
+
+        # 2. Prepara o Canvas com tamanho maior para caber 3 gráficos
+        # Usamos 'tight_layout' para ajustar automaticamente
+        canvas = GraficoCanvas(self, width=10, height=12, dpi=100)
+        
+        # Cria uma grade de gráficos: 2 linhas, 2 colunas
+        # ax1: Canto superior esquerdo (Pizza)
+        # ax2: Canto superior direito (Barras Posto)
+        # ax3: Parte inferior inteira (Barras OMs)
+        gs = canvas.fig.add_gridspec(2, 2)
+        ax1 = canvas.fig.add_subplot(gs[0, 0])
+        ax2 = canvas.fig.add_subplot(gs[0, 1])
+        ax3 = canvas.fig.add_subplot(gs[1, :]) # Ocupa as duas colunas de baixo
+
+        try:
+            # Filtra apenas quem tem destino definido
+            df_movimentados = df_plamov_compilado[df_plamov_compilado['PLAMOV'] != ""].copy()
+            
+            if df_movimentados.empty:
+                self.layout_graficos.addWidget(QtWidgets.QLabel("Não há movimentações definidas."))
+                return
+
+            # =========================================================
+            # GRÁFICO 1: TERMÔMETRO DE SATISFAÇÃO (O que você pediu)
+            # =========================================================
+            
+            # Precisamos mapear a OM de Destino (PLAMOV) para sua Localidade
+            # para comparar com LOC 1, LOC 2, LOC 3.
+            
+            # Cria um dicionário {OM: Localidade} baseado no df_OMs carregado
+            if 'df_OMs' in globals() and not df_OMs.empty:
+                dict_loc = dict(zip(df_OMs['OMs'].astype(str).str.strip(), df_OMs['Localidade'].astype(str).str.strip()))
+            else:
+                dict_loc = {}
+
+            # Função auxiliar para categorizar
+            def classificar_atendimento(row):
+                destino = str(row['PLAMOV']).strip()
+                # Tenta pegar a localidade da OM de destino, se não achar, usa o próprio nome
+                loc_destino = dict_loc.get(destino, destino) 
+                
+                l1 = str(row['LOC 1']).strip()
+                l2 = str(row['LOC 2']).strip()
+                l3 = str(row['LOC 3']).strip()
+
+                # Compara Localidade Destino com Localidades Escolhidas
+                # (Ou compara direto o nome da OM se o usuário escreveu OM nas opções)
+                if loc_destino == l1 or destino == l1: return "1ª Opção"
+                if loc_destino == l2 or destino == l2: return "2ª Opção"
+                if loc_destino == l3 or destino == l3: return "3ª Opção"
+                return "Interesse do Serviço" # Não atendeu nenhuma das 3
+
+            contagem_satisfacao = df_movimentados.apply(classificar_atendimento, axis=1).value_counts()
+            
+            # Cores para o gráfico de pizza
+            cores_map = {
+                "1ª Opção": "#2ca02c", # Verde
+                "2ª Opção": "#1f77b4", # Azul
+                "3ª Opção": "#ff7f0e", # Laranja
+                "Interesse do Serviço": "#d62728" # Vermelho
+            }
+            cores = [cores_map.get(x, "#999999") for x in contagem_satisfacao.index]
+
+            ax1.pie(contagem_satisfacao, labels=contagem_satisfacao.index, autopct='%1.1f%%', startangle=90, colors=cores)
+            ax1.set_title('Índice de Atendimento (Satisfação)', fontsize=10, fontweight='bold')
+
+            # =========================================================
+            # GRÁFICO 2: MOVIMENTAÇÃO POR POSTO
+            # =========================================================
+            contagem_posto = df_movimentados['POSTO'].value_counts()
+            
+            ax2.bar(contagem_posto.index, contagem_posto.values, color='#4a90e2')
+            ax2.set_title('Volume por Posto/Graduação', fontsize=10, fontweight='bold')
+            ax2.grid(axis='y', linestyle='--', alpha=0.5)
+            
+            # =========================================================
+            # GRÁFICO 3: TOP 10 OMs DE DESTINO
+            # =========================================================
+            top_oms = df_movimentados['PLAMOV'].value_counts().head(10)
+            
+            barras = ax3.barh(top_oms.index, top_oms.values, color='#8856a7')
+            ax3.invert_yaxis() # Maior no topo
+            ax3.set_title('Top 10 OMs de Destino (Para onde estão indo?)', fontsize=10, fontweight='bold')
+            ax3.bar_label(barras, padding=3)
+            ax3.grid(axis='x', linestyle='--', alpha=0.5)
+
+            # Ajuste final
+            canvas.fig.tight_layout(pad=3.0) # Mais espaço entre gráficos
+            self.layout_graficos.addWidget(canvas)
+
+        except Exception as e:
+            erro = QtWidgets.QLabel(f"Erro ao gerar gráficos: {e}")
+            self.layout_graficos.addWidget(erro)
+            print(f"Erro detalhado Dashboard: {e}")
+    
     def analisar_impacto_transferencia(self):
         """
         Verifica se a saída do militar vai quebrar a taxa de 70% da OM de origem
@@ -1344,9 +1546,10 @@ class UI(QMainWindow):
         """Reconstroi a visualização da tabela sem precisar do Excel."""
         global df_plamov_compilado
         
-        # Definição das colunas (mesma lógica do Carregar_Dados)
+        # Definição das colunas
         COLUNAS_DESEJADAS = [
             "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "PROJETO",
+            "APRESENTAÇÃO NA LOC", "DATA DE PRAÇA", "NR PT", # <--- ADICIONE AQUI TAMBÉM
             "LOC 1", "LOC 2", "LOC 3", "CÔNJUGE DA FAB?", "DADOS CÔNJUGE", "PLAMOV"
         ]
         
@@ -1405,9 +1608,10 @@ class UI(QMainWindow):
             df_plamov_compilado = df_plamov_compilado.fillna("") 
             df_plamov_compilado['ordem original'] = df_plamov_compilado.index
             
-            # --- Configuração das Colunas (Sua lógica nova) ---
+           # --- Configuração das Colunas ---
             COLUNAS_DESEJADAS = [
                 "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO", "ESP", "PROJETO",
+                "APRESENTAÇÃO NA LOC", "DATA DE PRAÇA", "NR PT",  # <--- ADICIONE AQUI
                 "LOC 1", "LOC 2", "LOC 3", "CÔNJUGE DA FAB?", "DADOS CÔNJUGE", "PLAMOV"
             ]
 
@@ -1616,10 +1820,7 @@ class UI(QMainWindow):
         linha_ativa_painel_direita = self.ui.tableWidget_2.currentRow()
         nome_coluna_ativa_painel_direita = df_OMs.columns[coluna_ativa_painel_direita]
         if (nome_coluna_ativa_painel_direita == "OMs"):
-            #ir na linha ativa esquerda e coluna PLAMOV 
-            #pegar o valor da célula doubleclicked no painel da direita
-            #igualar os dois
-            ###############################Parei aqui###############################################
+            
             OM_selecionada_painel_direita = QtWidgets.QTableWidgetItem(self.ui.tableWidget_2.item(linha_ativa_painel_direita, coluna_ativa_painel_direita))
             if (linha_selecionada_painel_esquerda%2):
                 #colorir de azul
@@ -1628,7 +1829,7 @@ class UI(QMainWindow):
                 #colorir de branco
                 OM_selecionada_painel_direita.setBackground(QtGui.QColor(255,255,255))
                 
-            self.ui.tableWidget.setItem(linha_selecionada_painel_esquerda, 12, OM_selecionada_painel_direita)
+            self.ui.tableWidget.setItem(linha_selecionada_painel_esquerda, 15, OM_selecionada_painel_direita)
             df_plamov_compilado.loc[linha_selecionada_painel_esquerda, "PLAMOV"] = self.ui.tableWidget_2.item(linha_ativa_painel_direita, coluna_ativa_painel_direita).text()
             linha_ativa_painel_esquerda = self.linha_ativa_dados_militares()
             coluna_ativa_painel_esquerda = self.coluna_ativa_dados_militares()
