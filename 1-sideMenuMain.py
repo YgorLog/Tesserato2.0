@@ -45,6 +45,10 @@ from SplashScreen_ui import Ui_SplashScreen
 #DONE: carregar os dois arquivos ao mesmo tempo
 #DONE: Checar o tempo de execução de cada função e escovar para diminuir
 #TODO: Apagar as linhas em branco do df_plamov (linhas que tem NaT)
+#TODO: Perguntar para o Itamar quais gráfico/indicadores seriam úteis
+#TODO: Terminar o filtro de colunas (efetivar a filtragem com o botão "Aplicar Filtro")
+#TODO: Colocar o filtro no painel da direita tb
+#TODO: Desassociar o tema do computador das cores do programa (modo claro/escuro)
 
 caminho_atual = os.getcwd()
 status_painel = ""
@@ -166,6 +170,110 @@ class SplashScreen (QMainWindow):
             self.close()
         counter += 1
 
+class FilterMenu(QtWidgets.QMenu):
+    # sinal que avisa quando o botão aplicar for clicado
+    filterApplied = QtCore.pyqtSignal()
+
+    def __init__(self, values, title, parent=None, active_filter=None):
+        super().__init__(title, parent)
+        self.values = sorted(list(set(str(v) for v in values if v is not None)))
+        self.check_boxes = []
+
+        # Estilo para parecer com Excel
+        self.setStyleSheet("QMenu { background-color: white; border: 1px solid gray; }")
+        
+        # Ação de "Selecionar Todos"
+        select_all = QtWidgets.QWidgetAction(self)
+        self.cb_all = QtWidgets.QCheckBox(" (Selecionar Tudo)", self)
+        
+        # Define o estado inicial do "Selecionar Tudo"
+        if active_filter is not None:
+             # Se tem filtro ativo, verificamos se TODOS os itens estão nele.
+             # Se o filtro ativo tiver o mesmo tamanho da lista de valores, é "Tudo"
+             if len(active_filter) == len(self.values):
+                 self.cb_all.setChecked(True)
+             else:
+                 self.cb_all.setChecked(False)
+        else:
+            self.cb_all.setChecked(True)
+            
+        # Conecta a mudança do "Selecionar Tudo" à função que marca os filhos
+        self.cb_all.stateChanged.connect(self.toggle_all)
+        select_all.setDefaultWidget(self.cb_all)
+        self.addAction(select_all)
+        self.addSeparator()
+
+        # Adiciona cada valor único como um Checkbox
+        for val in self.values:
+            action = QtWidgets.QWidgetAction(self)
+            cb = QtWidgets.QCheckBox(str(val), self)
+            
+            # Lógica de marcação inicial dos filhos
+            if active_filter is None:
+                cb.setChecked(True)
+            else:
+                if str(val) in active_filter:
+                    cb.setChecked(True)
+                else:
+                    cb.setChecked(False)
+            
+            # --- NOVA CONEXÃO: Cada filho avisa se deve atualizar o pai ---
+            cb.stateChanged.connect(self.atualizar_estado_selecionar_tudo)
+            # --------------------------------------------------------------
+
+            action.setDefaultWidget(cb)
+            self.addAction(action)
+            self.check_boxes.append(cb)
+
+        # Botão de Aplicar
+        btn_apply = QtWidgets.QPushButton("Aplicar Filtro")
+        btn_apply.clicked.connect(self.emitir_e_fechar)
+        
+        action_btn = QtWidgets.QWidgetAction(self)
+        action_btn.setDefaultWidget(btn_apply)
+        self.addAction(action_btn)
+
+    def emitir_e_fechar(self):    
+        self.filterApplied.emit()
+        self.close()
+    
+    def toggle_all(self, state):
+        """
+        Quando o usuário clica em (Selecionar Tudo).
+        Marca ou desmarca todos os filhos.
+        IMPORTANTE: Bloqueamos os sinais dos filhos para evitar que eles chamem
+        de volta a função 'atualizar_estado_selecionar_tudo' num loop desnecessário.
+        """
+        is_checked = (state == Qt.CheckState.Checked.value)
+        
+        for cb in self.check_boxes:
+            cb.blockSignals(True) # Pausa a escuta
+            cb.setChecked(is_checked)
+            cb.blockSignals(False) # Retoma a escuta
+
+    def atualizar_estado_selecionar_tudo(self):
+        """
+        Chamado toda vez que um item individual é clicado.
+        Verifica se todos estão marcados para atualizar o (Selecionar Tudo).
+        """
+        # Verifica se TODOS os checkboxes da lista estão marcados
+        todos_marcados = all(cb.isChecked() for cb in self.check_boxes)
+        
+        # Atualiza o pai sem disparar o evento dele (blockSignals)
+        # para não causar recursão (Pai muda Filho -> Filho muda Pai -> Pai muda Filho...)
+        self.cb_all.blockSignals(True)
+        self.cb_all.setChecked(todos_marcados)
+        self.cb_all.blockSignals(False)
+
+    def get_selected_values(self):
+        return [cb.text() for cb in self.check_boxes if cb.isChecked()]
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            self.emitir_e_fechar()
+        else:
+            super().keyPressEvent(event)
+
 
 class UI(QMainWindow):
     global df_plamov_compilado
@@ -195,6 +303,11 @@ class UI(QMainWindow):
             QTableWidget::item:selected:focus {
                 outline: none;
             }
+            /* Adicione isso para o ícone do cabeçalho ficar bonito */
+            QHeaderView::section {
+                padding-right: 5px; 
+                padding-left: 5px;
+            }
         """)
         
         self.ui.stackedWidget.setCurrentIndex(0) #para inicializar na página dos militares
@@ -213,12 +326,126 @@ class UI(QMainWindow):
         self.ui.tableWidget.cellChanged.connect(self.celula_alterada)
         self.ui.tableWidget_2.cellDoubleClicked.connect(lambda: self.escolher_OM_no_painel_direito())
 
+        # Dentro do def __init__(self) da classe UI:
+        self.ui.tableWidget.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.ui.tableWidget.horizontalHeader().customContextMenuRequested.connect(self.abrir_menu_filtro)
 
-        # --- NOVO: Tenta carregar do banco ao abrir ---
+        # Dicionário para guardar os filtros ativos de cada coluna
+        self.filtros_ativos = {}
+
+        # --- CRIAÇÃO DO ÍCONE DE FILTRO NA MEMÓRIA ---
+        self.icone_filtro = QtGui.QPixmap(20, 20)
+        self.icone_filtro.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(self.icone_filtro)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QtGui.QColor("#4a4a4a")) # Cor Cinza Escuro
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        # Desenha um triângulo/funil
+        path = QtGui.QPainterPath()
+        path.moveTo(4, 5)
+        path.lineTo(16, 5)
+        path.lineTo(10, 12)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.end()
+        self.icone_filtro = QtGui.QIcon(self.icone_filtro)
+        # ---------------------------------------------
+        
         self.carregar_tudo_do_banco()
-        # ----------------------------------------------
 
         self.show()
+
+    def abrir_menu_filtro(self, position):
+        # 1. Identifica qual coluna foi clicada (Coluna Alvo)
+        col_clicada = self.ui.tableWidget.horizontalHeader().logicalIndexAt(position)
+        
+        # 2. Coleta os valores da coluna, MAS respeitando os filtros das OUTRAS colunas
+        valores_coluna = []
+        
+        # Percorre todas as linhas da tabela
+        for row in range(self.ui.tableWidget.rowCount()):
+            linha_valida_pelo_contexto = True
+            
+            # Verifica se esta linha passa nos filtros das OUTRAS colunas
+            for col_filtro, valores_permitidos in self.filtros_ativos.items():
+                # Importante: Ignoramos o filtro da PRÓPRIA coluna clicada.
+                # Motivo: Se eu filtrei "SGT" na coluna Posto e abro o menu dela de novo,
+                # eu quero ver "SGT", "CB", "TN" para poder mudar minha escolha. 
+                # Se eu respeitasse o filtro da própria coluna, só apareceria "SGT".
+                if col_filtro == col_clicada:
+                    continue
+                
+                # Pega o valor da célula na coluna que tem filtro ativo
+                item_teste = self.ui.tableWidget.item(row, col_filtro)
+                valor_teste = item_teste.text() if item_teste else ""
+                
+                # Se o valor dessa linha não está permitido pelo filtro da outra coluna, a linha é inválida
+                if valor_teste not in valores_permitidos:
+                    linha_valida_pelo_contexto = False
+                    break
+            
+            # Se a linha for válida considerando o contexto das outras colunas, adicionamos o valor à lista
+            if linha_valida_pelo_contexto:
+                item = self.ui.tableWidget.item(row, col_clicada)
+                valores_coluna.append(item.text() if item else "")
+
+        # --- RECUPERA O FILTRO ANTERIOR (DA PRÓPRIA COLUNA) ---
+        filtro_atual = self.filtros_ativos.get(col_clicada)
+
+        # Abre o menu flutuante PASSANDO A LISTA FILTRADA e O ESTADO ATUAL
+        menu = FilterMenu(valores_coluna, f"Filtro", self, active_filter=filtro_atual)
+        
+        # Conexão do sinal
+        menu.filterApplied.connect(lambda: self.aplicar_e_guardar_filtros(col_clicada, menu))
+        
+        # Exibe o menu
+        menu.exec(self.ui.tableWidget.horizontalHeader().mapToGlobal(position))
+
+    def aplicar_e_guardar_filtros(self, col, menu):
+        # 1. Verifica se "Selecionar Tudo" está marcado
+        # (Se estiver marcado, não precisamos filtrar nada, o que deixa o programa mais rápido)
+        if menu.cb_all.isChecked():
+            # Se existia um filtro nessa coluna antes, removemos
+            if col in self.filtros_ativos:
+                del self.filtros_ativos[col]
+            
+            # REMOVE O ÍCONE DO CABEÇALHO
+            item_header = self.ui.tableWidget.horizontalHeaderItem(col)
+            if item_header:
+                item_header.setIcon(QtGui.QIcon()) # Ícone vazio
+
+        else:
+            # 2. Se não for selecionar tudo, pegamos os valores marcados
+            selecionados = menu.get_selected_values()
+            self.filtros_ativos[col] = selecionados
+            
+            # ADICIONA O ÍCONE DE FUNIL NO CABEÇALHO
+            item_header = self.ui.tableWidget.horizontalHeaderItem(col)
+            if item_header:
+                item_header.setIcon(self.icone_filtro)
+
+        # 3. Executa a lógica de esconder as linhas (agora mais otimizada)
+        self.executar_filtros_combinados()
+
+    def executar_filtros_combinados(self):
+        self.ui.tableWidget.setUpdatesEnabled(False)
+        
+        for row in range(self.ui.tableWidget.rowCount()):
+            exibir_linha = True
+            
+            # Verifica cada filtro ativo
+            for col, valores_permitidos in self.filtros_ativos.items():
+                item = self.ui.tableWidget.item(row, col)
+                texto_celula = item.text() if item else ""
+                
+                # Se o valor da célula NÃO está na lista de selecionados, esconde
+                if texto_celula not in valores_permitidos:
+                    exibir_linha = False
+                    break
+            
+            self.ui.tableWidget.setRowHidden(row, not exibir_linha)
+            
+        self.ui.tableWidget.setUpdatesEnabled(True)
 
     def salvar (self):
         #TODO: Esta função cria uma arquivo novo para salvar a relação de oms escolhidas para cada militar durante a execução do código. MUDAR PARA ESCREVER DIRETAMENTE NO ARQUIVO EXCEL DO PLAMOV.
