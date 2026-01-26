@@ -171,102 +171,107 @@ class SplashScreen (QMainWindow):
         counter += 1
 
 class FilterMenu(QtWidgets.QMenu):
-    # sinal que avisa quando o botão aplicar for clicado
     filterApplied = QtCore.pyqtSignal()
 
-    def __init__(self, values, title, parent=None, active_filter=None):
+    # Adicionei o argumento 'enable_numeric=True'
+    def __init__(self, values, title, parent=None, active_filter=None, enable_numeric=True):
         super().__init__(title, parent)
         self.values = sorted(list(set(str(v) for v in values if v is not None)))
         self.check_boxes = []
 
-        # Estilo visual
+        self.state = {'selecionados': self.values, 'maior': '', 'menor': ''}
+        
+        if active_filter:
+            if isinstance(active_filter, list):
+                self.state['selecionados'] = active_filter
+            elif isinstance(active_filter, dict):
+                self.state.update(active_filter)
+
         self.setStyleSheet("QMenu { background-color: white; border: 1px solid gray; }")
         
-        # --- 1. CONFIGURAÇÃO DA ÁREA DE ROLAGEM ---
-        # Criamos um widget que vai segurar todos os checkboxes
+        # --- 0. CAMPOS NUMÉRICOS (Só cria se enable_numeric for True) ---
+        if enable_numeric:
+            self.widget_numerico = QtWidgets.QWidget()
+            layout_num = QtWidgets.QGridLayout(self.widget_numerico)
+            layout_num.setContentsMargins(5, 5, 5, 5)
+
+            # Mudei os textos para indicar "Ou Igual"
+            lbl_maior = QtWidgets.QLabel("Maior ou igual (>=):")
+            self.edt_maior = QtWidgets.QLineEdit()
+            self.edt_maior.setPlaceholderText("Ex: 70")
+            self.edt_maior.setText(self.state['maior'])
+
+            lbl_menor = QtWidgets.QLabel("Menor ou igual (<=):")
+            self.edt_menor = QtWidgets.QLineEdit()
+            self.edt_menor.setPlaceholderText("Ex: 100")
+            self.edt_menor.setText(self.state['menor'])
+
+            layout_num.addWidget(lbl_maior, 0, 0)
+            layout_num.addWidget(self.edt_maior, 0, 1)
+            layout_num.addWidget(lbl_menor, 1, 0)
+            layout_num.addWidget(self.edt_menor, 1, 1)
+
+            act_num = QtWidgets.QWidgetAction(self)
+            act_num.setDefaultWidget(self.widget_numerico)
+            self.addAction(act_num)
+            self.addSeparator()
+
+        # --- 1. ÁREA DE ROLAGEM E CHECKBOXES (Mantido igual) ---
         self.widget_conteudo = QtWidgets.QWidget()
         self.layout_conteudo = QtWidgets.QVBoxLayout(self.widget_conteudo)
-        self.layout_conteudo.setContentsMargins(5, 5, 5, 5) # Margem interna
-        self.layout_conteudo.setSpacing(2) # Espaço entre itens
+        self.layout_conteudo.setContentsMargins(5, 5, 5, 5)
+        self.layout_conteudo.setSpacing(2)
 
-        # --- 2. CHECKBOX "SELECIONAR TUDO" ---
         self.cb_all = QtWidgets.QCheckBox(" (Selecionar Tudo)", self.widget_conteudo)
         
-        # Lógica inicial do Selecionar Tudo
-        if active_filter is not None:
-             if len(active_filter) == len(self.values):
-                 self.cb_all.setChecked(True)
-             else:
-                 self.cb_all.setChecked(False)
+        # Lógica do Selecionar Tudo
+        lista_selecionados = self.state['selecionados']
+        if len(lista_selecionados) == len(self.values):
+             self.cb_all.setChecked(True)
         else:
-            self.cb_all.setChecked(True)
+             self.cb_all.setChecked(False)
             
         self.cb_all.stateChanged.connect(self.toggle_all)
-        
-        # Adiciona o "Selecionar Tudo" ao layout
         self.layout_conteudo.addWidget(self.cb_all)
         
-        # Linha separadora visual dentro da rolagem (opcional)
         line = QtWidgets.QFrame()
         line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
         line.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
         self.layout_conteudo.addWidget(line)
 
-        # --- 3. CHECKBOXES DOS VALORES ---
         for val in self.values:
             cb = QtWidgets.QCheckBox(str(val), self.widget_conteudo)
-            
-            # Lógica de marcação inicial
-            if active_filter is None:
+            if str(val) in lista_selecionados:
                 cb.setChecked(True)
             else:
-                if str(val) in active_filter:
-                    cb.setChecked(True)
-                else:
-                    cb.setChecked(False)
+                cb.setChecked(False)
             
             cb.stateChanged.connect(self.atualizar_estado_selecionar_tudo)
-            
-            # Adiciona ao layout e à lista
             self.layout_conteudo.addWidget(cb)
             self.check_boxes.append(cb)
 
-        # Adiciona um espaçador no final para os itens ficarem no topo se a lista for pequena
         self.layout_conteudo.addStretch()
 
-        # --- 4. CONFIGURAÇÃO FINAL DA SCROLL AREA ---
         self.scroll_area = QtWidgets.QScrollArea()
         self.scroll_area.setWidget(self.widget_conteudo)
-        self.scroll_area.setWidgetResizable(True) # Importante para o layout funcionar
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setMinimumHeight(150)
+        self.scroll_area.setMaximumHeight(300)
+        self.scroll_area.setMinimumWidth(220)
         
-        # === LIMITADOR DE TAMANHO ===
-        self.scroll_area.setMinimumHeight(150) # Altura mínima
-        self.scroll_area.setMaximumHeight(300) # Altura máxima (Barra de rolagem aparece se passar disso)
-        self.scroll_area.setMinimumWidth(200)  # Largura mínima para ler o texto
-        
-        # Adiciona a ScrollArea como UMA ÚNICA AÇÃO no Menu
         item_action = QtWidgets.QWidgetAction(self)
         item_action.setDefaultWidget(self.scroll_area)
         self.addAction(item_action)
 
-        # --- 5. BOTÃO APLICAR (FORA DA ROLAGEM) ---
-        # Adicionamos uma separação antes do botão
         self.addSeparator()
         
         btn_apply = QtWidgets.QPushButton("Aplicar Filtro")
         btn_apply.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        # Estilo para destacar o botão
         btn_apply.setStyleSheet("""
             QPushButton {
-                background-color: #0078d7; 
-                color: white; 
-                border: none; 
-                padding: 5px; 
-                font-weight: bold;
+                background-color: #0078d7; color: white; border: none; padding: 5px; font-weight: bold;
             }
-            QPushButton:hover {
-                background-color: #005a9e;
-            }
+            QPushButton:hover { background-color: #005a9e; }
         """)
         btn_apply.clicked.connect(self.emitir_e_fechar)
         
@@ -291,8 +296,24 @@ class FilterMenu(QtWidgets.QMenu):
         self.cb_all.setChecked(todos_marcados)
         self.cb_all.blockSignals(False)
 
-    def get_selected_values(self):
-        return [cb.text() for cb in self.check_boxes if cb.isChecked()]
+    # Função nova que retorna o estado completo
+    def get_filter_state(self):
+        selecionados = [cb.text() for cb in self.check_boxes if cb.isChecked()]
+        
+        # Verifica se os campos existem antes de tentar ler o texto
+        if hasattr(self, 'edt_maior'):
+            val_maior = self.edt_maior.text().strip()
+            val_menor = self.edt_menor.text().strip()
+        else:
+            val_maior = ""
+            val_menor = ""
+
+        return {
+            'selecionados': selecionados,
+            'maior': val_maior,
+            'menor': val_menor,
+            'all_checked': self.cb_all.isChecked()
+        }
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key.Key_Return or event.key() == QtCore.Qt.Key.Key_Enter:
@@ -390,28 +411,43 @@ class UI(QMainWindow):
         self.show()
 
     def abrir_menu_filtro(self, position, tabela_alvo, dic_filtros):
-        """
-        Abre o menu de filtro para qualquer tabela passada como argumento.
-        """
-        # 1. Identifica a coluna na tabela específica
         col_clicada = tabela_alvo.horizontalHeader().logicalIndexAt(position)
         
+        # Coleta valores... (código de coleta mantém igual)
         valores_coluna = []
-        
-        # 2. Percorre a tabela ALVO
         for row in range(tabela_alvo.rowCount()):
             linha_valida_pelo_contexto = True
-            
-            # Verifica o dicionário de filtros ALVO
-            for col_filtro, valores_permitidos in dic_filtros.items():
+            for col_filtro, estado_filtro in dic_filtros.items():
                 if col_filtro == col_clicada:
                     continue
+                # ... (lógica de validação de contexto igual a anterior) ...
+                if isinstance(estado_filtro, dict):
+                    valores_permitidos = estado_filtro.get('selecionados', [])
+                    f_maior = estado_filtro.get('maior', '')
+                    f_menor = estado_filtro.get('menor', '')
+                else:
+                    valores_permitidos = estado_filtro
+                    f_maior = ''
+                    f_menor = ''
                 
                 item_teste = tabela_alvo.item(row, col_filtro)
                 valor_teste = item_teste.text() if item_teste else ""
                 
                 if valor_teste not in valores_permitidos:
                     linha_valida_pelo_contexto = False
+                
+                if linha_valida_pelo_contexto and (f_maior or f_menor):
+                    val_num = self.converter_para_float(valor_teste)
+                    if val_num is not None:
+                        # NOTA: Aqui já atualizamos a lógica de contexto para >= e <=
+                        if f_maior and not (val_num >= float(f_maior)):
+                            linha_valida_pelo_contexto = False
+                        if f_menor and not (val_num <= float(f_menor)):
+                            linha_valida_pelo_contexto = False
+                    else:
+                        linha_valida_pelo_contexto = False
+
+                if not linha_valida_pelo_contexto:
                     break
             
             if linha_valida_pelo_contexto:
@@ -420,61 +456,108 @@ class UI(QMainWindow):
 
         filtro_atual = dic_filtros.get(col_clicada)
 
-        # Cria o menu (A classe FilterMenu não precisa mudar)
-        menu = FilterMenu(valores_coluna, f"Filtro", self, active_filter=filtro_atual)
+        # --- DECISÃO: MOSTRAR CAMPOS NUMÉRICOS? ---
+        mostrar_numerico = True
         
-        # Conecta passando os argumentos corretos para a função de aplicar
+        # Se for a Tabela da Direita E a Coluna for a 0 (OM), esconde
+        if tabela_alvo == self.ui.tableWidget_2 and col_clicada == 0:
+            mostrar_numerico = False
+            
+        # Opcional: Se quiser esconder para todas as colunas de texto da esquerda também:
+        # if tabela_alvo == self.ui.tableWidget: mostrar_numerico = False 
+
+        menu = FilterMenu(valores_coluna, f"Filtro", self, active_filter=filtro_atual, enable_numeric=mostrar_numerico)
+        
         menu.filterApplied.connect(lambda: self.aplicar_e_guardar_filtros(col_clicada, menu, tabela_alvo, dic_filtros))
-        
         menu.exec(tabela_alvo.horizontalHeader().mapToGlobal(position))
 
 
     def aplicar_e_guardar_filtros(self, col, menu, tabela_alvo, dic_filtros):
-        """
-        Aplica o filtro na tabela correta e salva no dicionário correto.
-        """
-        if menu.cb_all.isChecked():
+        # Pega o estado completo do menu
+        estado = menu.get_filter_state()
+        
+        # Lógica: O filtro está "limpo" se "Selecionar Tudo" estiver marcado E os campos numéricos vazios
+        filtro_limpo = estado['all_checked'] and estado['maior'] == "" and estado['menor'] == ""
+
+        if filtro_limpo:
             if col in dic_filtros:
                 del dic_filtros[col]
             
-            # Remove ícone da tabela alvo
             item_header = tabela_alvo.horizontalHeaderItem(col)
             if item_header:
                 item_header.setIcon(QtGui.QIcon()) 
-
         else:
-            selecionados = menu.get_selected_values()
-            dic_filtros[col] = selecionados
+            # Salva o estado completo no dicionário
+            dic_filtros[col] = estado
             
-            # Adiciona ícone na tabela alvo
             item_header = tabela_alvo.horizontalHeaderItem(col)
             if item_header:
                 item_header.setIcon(self.icone_filtro)
 
-        # Executa o filtro na tabela alvo
         self.executar_filtros_combinados(tabela_alvo, dic_filtros)
 
 
     def executar_filtros_combinados(self, tabela_alvo, dic_filtros):
-        """
-        Esconde/Mostra linhas da tabela alvo baseada no dicionário de filtros alvo.
-        """
         tabela_alvo.setUpdatesEnabled(False)
         
         for row in range(tabela_alvo.rowCount()):
             exibir_linha = True
             
-            for col, valores_permitidos in dic_filtros.items():
+            for col, estado_filtro in dic_filtros.items():
+                if isinstance(estado_filtro, dict):
+                    valores_permitidos = estado_filtro.get('selecionados', [])
+                    f_maior = estado_filtro.get('maior', '')
+                    f_menor = estado_filtro.get('menor', '')
+                else:
+                    valores_permitidos = estado_filtro
+                    f_maior = ''
+                    f_menor = ''
+
                 item = tabela_alvo.item(row, col)
                 texto_celula = item.text() if item else ""
                 
                 if texto_celula not in valores_permitidos:
                     exibir_linha = False
+                
+                if exibir_linha and (f_maior or f_menor):
+                    val_num = self.converter_para_float(texto_celula)
+                    
+                    if val_num is not None:
+                        # --- LÓGICA ATUALIZADA (>= e <=) ---
+                        if f_maior:
+                            try:
+                                limit_maior = float(f_maior)
+                                # Se NÃO for maior OU IGUAL, esconde
+                                if not (val_num >= limit_maior):
+                                    exibir_linha = False
+                            except ValueError:
+                                pass 
+
+                        if f_menor and exibir_linha: 
+                            try:
+                                limit_menor = float(f_menor)
+                                # Se NÃO for menor OU IGUAL, esconde
+                                if not (val_num <= limit_menor):
+                                    exibir_linha = False
+                            except ValueError:
+                                pass
+                    else:
+                        exibir_linha = False
+                
+                if not exibir_linha:
                     break
             
             tabela_alvo.setRowHidden(row, not exibir_linha)
             
         tabela_alvo.setUpdatesEnabled(True)
+
+    def converter_para_float(self, valor_str):
+        try:
+            # Remove % e espaços
+            limpo = valor_str.replace('%', '').strip()
+            return float(limpo)
+        except ValueError:
+            return None
 
     def salvar (self):
         #TODO: Esta função cria uma arquivo novo para salvar a relação de oms escolhidas para cada militar durante a execução do código. MUDAR PARA ESCREVER DIRETAMENTE NO ARQUIVO EXCEL DO PLAMOV.
@@ -1003,7 +1086,7 @@ class UI(QMainWindow):
         if self.filtros_ativos_direita:
             self.executar_filtros_combinados(self.ui.tableWidget_2, self.filtros_ativos_direita)
         # --------------------------------------------
-        
+
         self.analisar_impacto_transferencia()
         # Note: Não há mais limpeza de colunas aqui, pois elas são redefinidas no início da função.
     
