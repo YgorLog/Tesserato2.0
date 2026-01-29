@@ -383,6 +383,23 @@ class GraficoCanvas(FigureCanvas):
         self.axes = self.fig.add_subplot(111) 
         super(GraficoCanvas, self).__init__(self.fig)
 
+# --- CLASSE PARA CORRIGIR A COR DA SELEÇÃO ---
+class ColorDelegate(QtWidgets.QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Verifica se a célula está selecionada
+        if option.state & QtWidgets.QStyle.StateFlag.State_Selected:
+            # Tenta pegar a cor de texto definida na célula (Vermelho ou Preto)
+            color_data = index.data(QtCore.Qt.ItemDataRole.ForegroundRole)
+            
+            if color_data:
+                # Se tiver cor (ex: Vermelho), obriga a seleção a usar essa cor
+                option.palette.setColor(QtGui.QPalette.ColorGroup.All, QtGui.QPalette.ColorRole.HighlightedText, color_data.color())
+            else:
+                # Se não tiver cor definida, força PRETO (para não ficar branco)
+                option.palette.setColor(QtGui.QPalette.ColorGroup.All, QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("black"))
+# ---------------------------------------------
+
 class UI(QMainWindow):
     global df_plamov_compilado
 
@@ -393,6 +410,10 @@ class UI(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+
+        # Isso ativa a correção de cores na tabela da esquerda
+        self.ui.tableWidget.setItemDelegate(ColorDelegate(self.ui.tableWidget))
+        # ---------------------------   
 
         # 1. Obriga a tabela a selecionar a LINHA INTEIRA ao clicar, não só a célula
         self.ui.tableWidget.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -426,7 +447,7 @@ class UI(QMainWindow):
         self.ui.tableWidget.setStyleSheet("""
             QTableWidget::item:selected {
                 background-color: #7f807c;
-                color: #000000;
+                /*color: #000000;*/
                 
             }
             QTableWidget::item:selected:focus {
@@ -669,6 +690,121 @@ class UI(QMainWindow):
                 df_plamov_compilado.loc[linha_alterada, "PLAMOV"] = self.ui.tableWidget.item(linha_alterada, coluna_alterada).text()   
             self.salvar_tudo_no_banco()
 
+    # ---  FUNÇÃO DEDICADA À ORDENAÇÃO ---
+    # OBS: Existe um critério especial para contar o tempo de localidade, pois o tempo não é contado quando está sendo feito o plamov, mas considera o mês de janeiro do ano seguinte. Por enquanto o tempo de localidade está sendo capturado da planilha excel, mas essa lógica deve ser implementada no tesserato no futuro.
+    # --- FUNÇÃO DE ORDENAÇÃO POR LOCALIDADE (BLOCOS A, B, C, D) ---
+    def aplicar_ordenacao_militares(self):
+        global df_plamov_compilado
+        
+        # Verifica se o DataFrame existe e não está vazio
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            return
+
+        # --- 1. DEFINIÇÃO DAS LOCALIDADES (NORMALIZADAS) ---
+        # Dica: Colocamos variações com e sem acento para garantir
+        loc_bloco_a = ["CACHIMBO", "EIRUNEPÊ", "EIRUNEPE", "SÃO GABRIEL DA CACHOEIRA", "SAO GABRIEL DA CACHOEIRA", "VILHENA"]
+        loc_bloco_b = ["BOA VISTA", "PORTO VELHO"]
+        loc_bloco_c = ["MANAUS", "BELÉM", "BELEM"]
+        
+        # 2. Garante que as colunas necessárias existem
+        # ATENÇÃO: Agora olhamos para "LOC ATUAL" em vez de "OM ATUAL"
+        if "LOC ATUAL" in df_plamov_compilado.columns and "TEMPO LOC" in df_plamov_compilado.columns:
+            
+            # --- TRATAMENTO DE DADOS ---
+            # Converte TEMPO LOC para número (trata vírgula e ponto)
+            df_plamov_compilado["TEMPO LOC"] = (
+                df_plamov_compilado["TEMPO LOC"]
+                .astype(str)
+                .str.replace(',', '.')
+                .apply(pd.to_numeric, errors='coerce')
+                .fillna(0)
+            )
+            
+            # Normaliza o texto da LOCALIDADE (Maiúsculo e sem espaços extras)
+            serie_loc_atual = df_plamov_compilado["LOC ATUAL"].astype(str).str.strip().str.upper()
+            serie_tempo = df_plamov_compilado["TEMPO LOC"]
+
+            # --- DEFINIÇÃO DAS REGRAS (AGORA POR LOCALIDADE) ---
+            
+            # Bloco A: Localidades Difíceis (>= 2 anos)
+            cond_a = serie_loc_atual.isin([x.upper() for x in loc_bloco_a]) & (serie_tempo >= 2)
+            
+            # Bloco B: Boa Vista / Porto Velho (>= 4 anos)
+            cond_b = serie_loc_atual.isin([x.upper() for x in loc_bloco_b]) & (serie_tempo >= 4)
+            
+            # Bloco C: Manaus / Belém (>= 5 anos)
+            cond_c = serie_loc_atual.isin([x.upper() for x in loc_bloco_c]) & (serie_tempo >= 5)
+            
+            # Bloco D: Qualquer Localidade (>= 8 anos)
+            cond_d = (serie_tempo >= 8)
+
+            # --- SISTEMA DE PONTUAÇÃO (HIERARQUIA) ---
+            # A função np.select respeita a ordem: Se for A, ganha 40 e sai. Se não, testa B...
+            # Isso impede que alguém de Boa Vista com 10 anos caia no Bloco D (10 pts). 
+            # Como B vem antes, ele garante os 30 pts.
+            
+            condicoes = [cond_a, cond_b, cond_c, cond_d]
+            pontos    = [40,     30,     20,     10]
+            
+            # Cria coluna auxiliar de Score
+            df_plamov_compilado['SCORE_PRIORIDADE'] = np.select(condicoes, pontos, default=0)
+            
+            # 4. Define a ordem final
+            # 1º: SCORE (Decrescente -> 40, 30, 20, 10, 0)
+            # 2º: MELHOR PRIO (Crescente -> 1ª Opção melhor que 2ª)
+            # 3º: TEMPO LOC (Decrescente -> Quanto mais tempo, mais no topo dentro do mesmo bloco)
+            # 4º: ANTIGUIDADE (Crescente -> Mais antigo primeiro)
+            cols_ordenacao = ['SCORE_PRIORIDADE', 'MELHOR PRIO', 'TEMPO LOC', 'ANTIGUIDADE']
+            asc_order = [False, True, False, True] 
+            
+        else:
+            # Fallback
+            cols_ordenacao = ['MELHOR PRIO', 'TEMPO LOC', 'ANTIGUIDADE']
+            asc_order = [True, False, True]
+
+        # 5. Aplica a ordenação
+        cols_finais = [c for c in cols_ordenacao if c in df_plamov_compilado.columns]
+        asc_finais = [asc_order[i] for i, c in enumerate(cols_ordenacao) if c in df_plamov_compilado.columns]
+        
+        if cols_finais:
+            df_plamov_compilado = df_plamov_compilado.sort_values(by=cols_finais, ascending=asc_finais)
+            df_plamov_compilado = df_plamov_compilado.reset_index(drop=True)
+
+    # ---  FUNÇÃO PARA COLORIR O SARAM DOS MILITARES COM PRIORIDADE ESPECIAL DOS BLOCOS A, B, C, D ---
+    # --- FUNÇÃO PARA COLORIR O SARAM E ADICIONAR DICA (TOOLTIP) ---
+    def destacar_saram_prioritarios(self):
+        global df_plamov_compilado
+        
+        # Verifica se o cálculo de prioridade já foi feito
+        if 'SCORE_PRIORIDADE' not in df_plamov_compilado.columns:
+            return
+
+        # Define qual coluna é o SARAM (Baseado na sua lista: LOC ATUAL(0), OM ATUAL(1), SARAM(2))
+        coluna_saram = 2 
+
+        # Percorre todas as linhas da tabela visual
+        for row in range(self.ui.tableWidget.rowCount()):
+            # Garante que não vamos acessar um índice que não existe no DataFrame
+            if row < len(df_plamov_compilado):
+                
+                # Verifica a pontuação do militar nessa linha
+                score = df_plamov_compilado.at[row, 'SCORE_PRIORIDADE']
+                
+                # Se for maior que 0, significa que caiu no Bloco A, B, C ou D
+                if score > 0:
+                    item = self.ui.tableWidget.item(row, coluna_saram)
+                    if item:
+                        # 1. Pinta o texto de Vermelho
+                        item.setForeground(QtGui.QColor("red"))
+                        
+                        # # 2. Deixa em Negrito
+                        # font = item.font()
+                        # font.setBold(True)
+                        # item.setFont(font)
+
+                        # 3. ADICIONA A OBSERVAÇÃO AO PASSAR O MOUSE (NOVIDADE)
+                        item.setToolTip("Prioridade Especial: Tempo de Localidade")
+
     #passar as páginas
     def Pag_Militares(self):
         self.ui.stackedWidget.setCurrentIndex(0)
@@ -683,311 +819,7 @@ class UI(QMainWindow):
     def alerta_deficit (self):
         pass
 
-    ###############################################################
-    ###############################################################
-    ###############################################################
-       ######################################################################
-    ####Função antiga##########
-    ######################################################################
-    # def atualizar_Painel_Direita (self):
-    #     global df_OMs
-    #     global df_TP_BMA
-    #     global df_plamov_compilado
-        
-    #     linha = self.linha_ativa_dados_militares()
-        
-    #     # --- CORREÇÃO DE TEXTO (Sanitização) ---
-    #     # Adicionei .strip() e converti para string para evitar erros de comparação
-    #     posto = str(pegar_posto(linha)).strip()
-    #     quadro = str(pegar_quadro(linha)).strip()
-    #     especialidade = str(pegar_especialidade(linha)).strip()
-    #     Projeto = str(pegar_Projeto(linha)).strip()
-        
-    #     loc1 = pegar_LOC1(linha)
-    #     loc2 = pegar_LOC2(linha)
-    #     loc3 = pegar_LOC3(linha)
-    #     loc_atual = pegar_LOC_atual(linha)
-
-    #     # Configura tabela visual
-    #     self.ui.tableWidget_2.setColumnCount(3)
-    #     self.ui.tableWidget_2.setRowCount(df_OMs.shape[0]) 
-    #     self.ui.tableWidget_2.setHorizontalHeaderLabels(["OM", "Taxa de Ocup.", "Vagas"])
-
-    #     # DEBUG: Confirma o que o código está lendo
-    #     print(f"DEBUG: Militar selecionado -> Esp: '{especialidade}' | Sub: '{Projeto}'")
-
-    #     for k in range(df_OMs.shape[0]):
-    #         chegando = 0
-    #         saindo = 0
-            
-    #         # ==============================================================================
-    #         # LÓGICA BMA (CRUZAMENTO PLAMOV + TP BMA)
-    #         # ==============================================================================
-    #         # A comparação agora é segura porque usamos .strip() acima
-    #         if especialidade == "BMA":
-    #             if k == 0: print("--> Entrou na lógica BMA") # Printa só na primeira passada para não poluir
-                
-    #             # Filtro robusto para achar a vaga na tabela BMA
-    #             filtro_bma = (
-    #                 (df_TP_BMA['Unidade'].astype(str).str.strip() == str(df_OMs.iloc[k,0]).strip()) & 
-    #                 (df_TP_BMA['Posto'].astype(str).str.strip() == posto) & 
-    #                 (df_TP_BMA['Quadro'].astype(str).str.strip() == quadro) & 
-    #                 (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
-    #             )
-                
-    #             vagas_OM_selecionada = df_TP_BMA[filtro_bma]
-                
-    #             if not vagas_OM_selecionada.empty:
-    #                 # --- DEBUG DETALHADO (O CÓDIGO VAI TE MOSTRAR O QUE ACHOU) ---
-    #                 if str(df_OMs.iloc[k,0]) == "2/2 GT":
-    #                     print("-" * 50)
-    #                     print(f"ALERTA: O código achou uma linha no Excel para 2/2 e {Projeto}!")
-    #                     print("Aqui está a linha exata que o Pandas leu do seu arquivo:")
-    #                     print(vagas_OM_selecionada.to_string())
-    #                     print("-" * 50)
-    #                 # -------------------------------------------------------------
-
-    #                 # Cálculos de Chegando/Saindo
-    #                 chegando = df_plamov_compilado.query(
-    #                     f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}'"
-    #                 ).shape[0]
-                    
-    #                 saindo = df_plamov_compilado.query(
-    #                     f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}' & PLAMOV != ''"
-    #                 ).shape[0]
-                    
-    #                 # Extração dos dados da TP BMA
-    #                 try:
-    #                     # Tenta pegar pelo NOME (Mais seguro)
-    #                     # VERIFIQUE SE O NOME DA COLUNA NO SEU EXCEL É EXATAMENTE "TLP Ano Corrente"
-    #                     TP = vagas_OM_selecionada.iloc[0]['TLP Ano Corrente'] 
-    #                     existentes_na_TP = vagas_OM_selecionada.iloc[0]['Existentes']
-                        
-    #                     if str(df_OMs.iloc[k,0]) == "2/2 GT":
-    #                         print(f"Valores Extraídos pelo NOME: TP={TP}, Existentes={existentes_na_TP}")
-
-    #                 except KeyError:
-    #                     # Se der erro no nome, ele cai aqui e pega pelo índice numérico
-    #                     # SE A SUA PLANILHA MUDOU, O ÍNDICE 4 PODE NÃO SER MAIS A TLP!
-    #                     TP = vagas_OM_selecionada.iloc[0, 4] 
-    #                     existentes_na_TP = vagas_OM_selecionada.iloc[0, 5]
-                        
-    #                     if str(df_OMs.iloc[k,0]) == "2/2/2 GT":
-    #                         print(f"Valores Extraídos pelo ÍNDICE (Fallback): TP={TP} (col 4), Exist={existentes_na_TP} (col 5)")
-    #                 print(f"MOVIMENTAÇÃO: Chegando={chegando}, Saindo={saindo}")
-    #                 df_OMs.loc[k,"Vagas"] = TP + saindo - chegando
-    #                 existentes = existentes_na_TP + chegando - saindo
-                    
-    #                 if TP != 0:    
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = round(float(existentes)/float(TP), 4) * 100
-    #                 else:
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                     df_OMs.loc[k,"Vagas"] = ""
-    #             else:
-    #                 # Se não achou "Motores" na tabela para "2/2", assume que não tem vaga (0)
-    #                 if str(df_OMs.iloc[k,0]) == "2/2 GT":
-    #                     print(f"NÃO achou na TP BMA para 2/2 GT: {Projeto} (Vai retornar Sem TP)")
-                    
-    #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                 df_OMs.loc[k,"Vagas"] = ""
-
-    #         # ==============================================================================
-    #         # LÓGICA PADRÃO (OUTROS)
-    #         # ==============================================================================
-    #         else:
-    #             if k == 0: print("--> Entrou na lógica PADRÃO (Geral)") # Debug
-                
-    #             # ... (Seu código Else original continua aqui)
-    #             # Se o código cair aqui sendo BMA, é porque a string 'especialidade' estava suja
-    #             if posto == "CP":
-    #                 vagas_OM_selecionada = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & ((Posto == 'CP/TN') | (Posto == 'CP')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-                
-    #             elif posto == "TN":
-    #                 vagas_OM_selecionada = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & ((Posto == 'CP/TN') | (Posto == 'TN')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-    #             else:
-    #                 vagas_OM_selecionada = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & Posto == '{posto}' & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-                
-    #             if not vagas_OM_selecionada.empty:
-    #                 df_OMs.loc[k,"Localidade"] = vagas_OM_selecionada.iloc[0,0] # Pega localidade da TP Geral
-
-    #                 if posto == "CP" or posto == "TN":
-    #                     chegando = df_plamov_compilado.query(f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
-    #                     saindo = df_plamov_compilado.query(f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
-    #                 else:
-    #                     chegando = df_plamov_compilado.query(f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
-    #                     saindo = df_plamov_compilado.query(f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
-
-    #                 # Índices TP Geral (conforme seu código original)
-    #                 TP = vagas_OM_selecionada.iloc[0,15] 
-    #                 existentes_na_TP = vagas_OM_selecionada.iloc[0,11]
-
-    #                 df_OMs.loc[k,"Vagas"] = TP + saindo - chegando
-    #                 existentes = existentes_na_TP + chegando - saindo
-
-    #                 if vagas_OM_selecionada.iloc[0,10] != 0:    
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = round(float(existentes)/float(vagas_OM_selecionada.iloc[0,10]), 4) * 100
-    #                 else:
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                     df_OMs.loc[k,"Vagas"] = ""
-    #             else:
-    #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                 df_OMs.loc[k,"Vagas"] = ""
-
-    #     # ==============================================================================
-    #     # PREENCHIMENTO VISUAL (Comum a todos)
-    #     # ==============================================================================
-    #     df_OMs.sort_values(by=['Taxa de Ocup.', 'Vagas'], ascending=[True, False], inplace=True)
-    #     df_OMs.reset_index(drop=True, inplace=True)
-
-    #     for i in range(df_OMs.shape[0]):
-    #         for j in range(3):
-    #             item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[i,j]))
-    #             self.ui.tableWidget_2.setItem(i,j, item)
-                
-    #             if i%2:
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(100, 139, 245))
-                
-    #             om_loc = str(df_OMs.iloc[i,3]).strip().upper()
-    #             l1 = str(loc1).strip().upper()
-    #             l2 = str(loc2).strip().upper()
-    #             l3 = str(loc3).strip().upper()
-                
-    #             if om_loc == l3 and l3 != "":
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(255, 0, 255))
-    #             if om_loc == l2 and l2 != "":
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(255, 243, 8))
-    #             if om_loc == l1 and l1 != "":
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(29, 181, 2))
-            
-    #         if str(df_OMs.iloc[i,0]).strip().upper() == str(loc_atual).strip().upper():
-    #             item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[i,0]))
-    #             self.ui.tableWidget_2.setItem(i,0, item)
-    #             self.ui.tableWidget_2.item(i, 0).setBackground(QtGui.QColor(107, 107, 106))
-
-    #     df_OMs["Taxa de Ocup."] = ""
-    #     df_OMs["Vagas"] = ""
-
-        
-    #     for k in range(df_OMs.shape[0]):
-    #         chegando = 0
-    #         saindo = 0
-    #         if posto == "CP":
-    #             vagas_OM_selecionada  = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & ((Posto == 'CP/TN') | (Posto == 'CP')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-    #             if not vagas_OM_selecionada.empty:
-                    
-    #                 chegando = df_plamov_compilado.query(f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == 'CP' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
-    #                 saindo = df_plamov_compilado.query(f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == 'CP' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
-    #                 TP = vagas_OM_selecionada.iloc[0,15]
-    #                 df_OMs.loc[k,"Vagas"] = TP + saindo - chegando
-    #                 existentes_na_TP = vagas_OM_selecionada.iloc[0,11]
-    #                 existentes = existentes_na_TP + chegando - saindo
-                    
-
-    #                 #PEGA A LOCALIDADE DA OM
-    #                 df_OMs.loc[k,"Localidade"] = vagas_OM_selecionada.iloc[0,0]
-                    
-    #                 #SE A TP PARA ESSAS 3 DIMENSÕES NÃO ESTIVER ZERADA, É FEITO O CÁLCULO DA TAXA DE OCUP.
-    #                 if vagas_OM_selecionada.iloc[0,10] != 0:     
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = round(float(existentes)/float(vagas_OM_selecionada.iloc[0,10]), 4) * 100
-                        
-    #                 #SE FOR ZERADA, É APRESENTADO "SEM TP"
-    #                 else:
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                     df_OMs.loc[k,"Vagas"] = ""
-    #             else:
-    #                 #TRABALHA A CONDIÇÃO DE A QUERY NÃO RETORNAR NADA, OU SEJA, NÃO EXISTE ESSA COMBINAÇÃO NA TABELA TP
-    #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                 df_OMs.loc[k,"Vagas"] = ""
-    #                 for i in range(3):
-    #                     item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[k,i]))
-    #                     self.ui.tableWidget_2.setItem(k,i, item)
-    #         elif posto == "TN":
-    #             vagas_OM_selecionada  = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & ((Posto == 'CP/TN') | (Posto == 'TN')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-    #             if not vagas_OM_selecionada.empty:
-
-    #                 chegando = df_plamov_compilado.query(f"PLAMOV == '{df_OMs.iloc[k,0]}' & (POSTO == 'TN') & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
-    #                 saindo = df_plamov_compilado.query(f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & (POSTO == 'TN') & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
-    #                 TP = vagas_OM_selecionada.iloc[0,15]
-    #                 df_OMs.loc[k,"Vagas"] = TP + saindo - chegando
-    #                 existentes_na_TP = vagas_OM_selecionada.iloc[0,11]
-    #                 existentes = existentes_na_TP + chegando - saindo
-    #                 #PEGA A LOCALIDADE DA OM
-    #                 df_OMs.loc[k,"Localidade"] = vagas_OM_selecionada.iloc[0,0]
-                    
-    #                 #SE A TP PARA ESSAS 3 DIMENSÕES NÃO ESTIVER ZERADA, É FEITO O CÁLCULO DA TAXA DE OCUP.
-    #                 if vagas_OM_selecionada.iloc[0,10] != 0:     
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = round(float(existentes)/float(vagas_OM_selecionada.iloc[0,10]), 4) * 100
-    #                 #SE FOR ZERADA, É APRESENTADO "SEM TP"
-    #                 else:
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                     df_OMs.loc[k,"Vagas"] = ""
-    #             else:
-    #                 #TRABALHA A CONDIÇÃO DE A QUERY NÃO RETORNAR NADA, OU SEJA, NÃO EXISTE ESSA COMBINAÇÃO NA TABELA TP
-    #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                 df_OMs.loc[k,"Vagas"] = ""
-    #                 for i in range(3):
-    #                     item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[k,i]))
-    #                     self.ui.tableWidget_2.setItem(k,i, item)
-    #         else:
-    #             vagas_OM_selecionada  = df_TP.query(f"Unidade == '{df_OMs.iloc[k,0]}' & Posto == '{posto}' & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
-    #             if not vagas_OM_selecionada.empty:
-
-    #                 chegando = df_plamov_compilado.query(f"PLAMOV == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
-    #                 saindo = df_plamov_compilado.query(f"`OM ATUAL` == '{df_OMs.iloc[k,0]}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
-    #                 TP = vagas_OM_selecionada.iloc[0,15]
-    #                 df_OMs.loc[k,"Vagas"] = TP + saindo - chegando
-    #                 existentes_na_TP = vagas_OM_selecionada.iloc[0,11]
-    #                 existentes = existentes_na_TP + chegando - saindo
-
-    #                 #PEGA A LOCALIDADE DA OM
-    #                 df_OMs.loc[k,"Localidade"] = vagas_OM_selecionada.iloc[0,0]
-                    
-    #                 #SE A TP PARA ESSAS 3 DIMENSÕES NÃO ESTIVER ZERADA, É FEITO O CÁLCULO DA TAXA DE OCUP.
-    #                 if vagas_OM_selecionada.iloc[0,10] != 0:     
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = round(float(existentes)/float(vagas_OM_selecionada.iloc[0,10]), 4) * 100
-    #                 #SE FOR ZERADA, É APRESENTADO "SEM TP"
-    #                 else:
-    #                     df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                     df_OMs.loc[k,"Vagas"] = ""
-    #             else:
-    #                 #TRABALHA A CONDIÇÃO DE A QUERY NÃO RETORNAR NADA, OU SEJA, NÃO EXISTE ESSA COMBINAÇÃO NA TABELA TP
-    #                 df_OMs.loc[k,"Taxa de Ocup."] = "Sem TP"
-    #                 df_OMs.loc[k,"Vagas"] = ""
-    #                 for i in range(3):
-    #                     item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[k,i]))
-    #                     self.ui.tableWidget_2.setItem(k,i, item)
-
-
-    #     #DESCRIÇÃO: ORDENAÇÃO
-    #     df_OMs.sort_values(by=['Taxa de Ocup.', 'Vagas'], ascending=[True, False], inplace=True)
-    #     df_OMs.reset_index(drop=True, inplace=True)
-
-    #     #DESCRIÇÃO: COLOCA OS VALORES NA TABELA DA DIREIRA
-    #     for i in range(df_OMs.shape[0]):
-    #         for j in range(3):
-    #             item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[i,j]))
-    #             self.ui.tableWidget_2.setItem(i,j, item)
-    #             #DESCRIÇÃO: COLORE AS LOCALIDADES E AS LINHAS PARES
-    #             if i%2:
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(100, 139, 245))
-    #             if (df_OMs.iloc[i,3]) == loc3:
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(255, 0, 255))
-    #             if (df_OMs.iloc[i,3]) == loc2:
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(255, 243, 8))
-    #             if (df_OMs.iloc[i,3]) == loc1:
-    #                 self.ui.tableWidget_2.item(i, j).setBackground(QtGui.QColor(29, 181, 2))
-    #         if (df_OMs.iloc[i,3]) == loc_atual:
-    #                 item = QtWidgets.QTableWidgetItem(str(df_OMs.iloc[i,0]))
-    #                 self.ui.tableWidget_2.setItem(i,0, item)
-    #                 self.ui.tableWidget_2.item(i, 0).setBackground(QtGui.QColor(107, 107, 106))
-    #     df_OMs["Taxa de Ocup."] = ""
-    #     df_OMs["'Vagas'"] = ""
-    #     df_OMs["Localidade"] = ""
-
-
-    ###############################################################
-    ###############################################################
-    ###############################################################
+    
     def atualizar_Painel_Direita (self):
         global df_OMs
         # Assumindo que df_TP e df_TP_BMA estão globais e carregados
@@ -1564,6 +1396,8 @@ class UI(QMainWindow):
         self.ui.tableWidget.setColumnCount(len(colunas_existentes))
         self.ui.tableWidget.setRowCount(df_plamov_compilado.shape[0])
         self.ui.tableWidget.setHorizontalHeaderLabels(colunas_existentes)
+
+        self.aplicar_ordenacao_militares()
         
         # Configurações visuais (Selection Behavior)
         self.ui.tableWidget.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -1582,6 +1416,8 @@ class UI(QMainWindow):
                     
                 coluna_tableWidget_esquerda += 1
             coluna_tableWidget_esquerda = 0
+        
+        self.destacar_saram_prioritarios()
 
     ##############################################################################
     ##### FIM DA FUNÇÃO PRINCIPAL DE CARREGAMENTO DE DADOS DOS MILITARES #########
@@ -1628,13 +1464,7 @@ class UI(QMainWindow):
             self.ui.tableWidget.setRowCount(df_plamov_compilado.shape[0])
             self.ui.tableWidget.setHorizontalHeaderLabels(colunas_existentes)
 
-            # --- Ordenação ---
-            cols_ordenacao = ['MELHOR PRIO', 'TEMPO LOC', 'ANTIGUIDADE']
-            cols_presentes = [c for c in cols_ordenacao if c in df_plamov_compilado.columns]
-            if cols_presentes:
-                asc_order = [True, False, True][:len(cols_presentes)]
-                df_plamov_compilado = df_plamov_compilado.sort_values(by=cols_presentes, ascending=asc_order)
-                df_plamov_compilado = df_plamov_compilado.reset_index(drop=True)
+            self.aplicar_ordenacao_militares()
 
             # --- Preenchimento da Tabela Visual ---
             coluna_tableWidget_esquerda = 0
@@ -1649,6 +1479,8 @@ class UI(QMainWindow):
                         
                     coluna_tableWidget_esquerda += 1
                 coluna_tableWidget_esquerda = 0 
+
+            self.destacar_saram_prioritarios()
             
             status_painel = "carregado"
 
@@ -1659,9 +1491,9 @@ class UI(QMainWindow):
             df_OMs = pegar_OMs_do_COMPREP() # Carrega a lista de OMs
             self.carregar_Relat_rio_TP()    # Carrega as tabelas TP e TP BMA
             
-            # --- NOVO: SALVAR NO BANCO ---
+            # ---  SALVAR NO BANCO ---
             self.salvar_tudo_no_banco()
-            # -----------------------------
+            # ------------------------
         
         else:
             # Se o usuário cancelar ou o arquivo for inválido, não faz nada
@@ -1689,14 +1521,11 @@ class UI(QMainWindow):
             # --- DEBUG: Verifique no terminal o que está sendo carregado ---
             # print("Colunas encontradas no Excel (TP BMA):", df_TP_BMA.columns.tolist())
 
-            # 2. PADRONIZAÇÃO DE NOMES
-            # O código espera "Projeto", mas o Excel pode ter variações.
-            # Adicione aqui qualquer outra variação que seu Excel possa ter.
+            # 2. Mapeia nomes incorretos para o nome correto "Projeto"
             mapa_correcao = {
-                "Sub Especialidade": "Projeto",
+                "projeto": "Projeto",
+                "Projeto": "Projeto",
                 "PROJETO": "Projeto",
-                "Sub Esp": "Projeto",
-                "Sub-Especialidade": "Projeto",
                 "Projeto ": "Projeto" # Caso tenha espaço no final
             }
             df_TP_BMA.rename(columns=mapa_correcao, inplace=True)
@@ -1720,7 +1549,7 @@ class UI(QMainWindow):
     #1- checar se o militar está sendo transferido realmente, pq pode acontecer de colocar a unidade de destino igual à unidade atual
     #2- checar se a coluna alterada é a coluna "PLAMOV"
     #3- checar se a célula foi feita pelo usuário, caso contrário a função seria ativada quando o relatório fosse carregado.
-    #
+        
         global coluna_ativa_painel_esquerda
         coluna_ativa_painel_esquerda = self.ui.tableWidget.currentColumn()
         return coluna_ativa_painel_esquerda
