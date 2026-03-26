@@ -53,6 +53,7 @@ import numpy as np
 #TODO: Terminar o filtro de colunas (efetivar a filtragem com o botão "Aplicar Filtro")
 #TODO: Colocar o filtro no painel da direita tb
 #TODO: Desassociar o tema do computador das cores do programa (modo claro/escuro)
+#TODO: Inserir um aviso de quantos militares com a mesma qualificação ainda querem ir pra localidade do militar selecionado, dessa forma o usuário consegue saber se vai ter que entubar alguém pra localidade do militar selecionado se esse sair.
 
 caminho_atual = os.getcwd()
 status_painel = ""
@@ -1163,6 +1164,9 @@ class UI(QMainWindow):
         Verifica se a saída do militar vai quebrar a taxa de 70% da OM de origem
         e conta quantos reservas existem abaixo na lista.
         """
+        self.ui.statusbar.clearMessage()
+        self.ui.statusbar.setStyleSheet("")
+
         global df_plamov_compilado
         global df_TP_BMA
         
@@ -1172,7 +1176,8 @@ class UI(QMainWindow):
         # Cuidado: Pegar a OM ATUAL (Origem), não o destino (PLAMOV)
         om_origem = str(df_plamov_compilado["OM ATUAL"].iloc[linha_atual]).strip()
         Projeto = pegar_Projeto(linha_atual)
-        
+        especialidade = pegar_especialidade(linha_atual)
+
         if not Projeto or Projeto == "nan":
             return # Sem dados para analisar
 
@@ -1180,12 +1185,15 @@ class UI(QMainWindow):
         # Filtra a TP BMA pela OM e Projeto (somando todos os postos)
         filtro_tp = (
             (df_TP_BMA['Unidade'].astype(str).str.strip() == om_origem) & 
-            (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
+            (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto) &
+            (df_TP_BMA['Especialidade'].astype(str).str.strip() == especialidade)
         )
         dados_tp = df_TP_BMA[filtro_tp]
         
         if dados_tp.empty:
-            print(f"ALERTA: OM de origem {om_origem} não tem previsão na TP para {Projeto}.")
+            self.ui.statusbar.showMessage(f"A OM de origem ({om_origem}) desse militar não tem previsão na TP para {especialidade}.")
+            self.ui.statusbar.setStyleSheet("color: red; font-weight: bold;")
+            #Não faz sentido calcular a nova taxa de ocupação, pois, se não há TP, não existe taxa de ocupação.
             return
 
         # Soma TLP e Existentes (caso haja distinção de postos, somamos tudo daquela Projeto)
@@ -1199,6 +1207,8 @@ class UI(QMainWindow):
             total_existentes = dados_tp.iloc[:, 5].sum()
 
         if total_meta == 0:
+            self.ui.statusbar.showMessage(f"Segundo o Retório TP, não há nenhum militar em {om_origem}. Verifique a OM de origem do militar está correta ou se o Retório TP está atualizado.")
+            self.ui.statusbar.setStyleSheet("color: red; font-weight: bold;")
             return # Evita divisão por zero
 
         # 3. Simulação da Saída
@@ -1221,8 +1231,6 @@ class UI(QMainWindow):
                 f"(Meta: 70%).\n"
                 f"RESERVAS DISPONÍVEIS ABAIXO: {reservas} militares de {Projeto}."
             )
-            
-            print(msg_alerta) # Mostra no terminal para debug
             
             # SUGESTÃO PRÁTICA: Mostrar na Barra de Status do Programa (Rodapé)
             # Isso é discreto mas visível para o analista
@@ -1251,7 +1259,6 @@ class UI(QMainWindow):
         
         # Se não achou a coluna SARAM, para por aqui
         if coluna_saram == -1:
-            print("Coluna SARAM não encontrada na tabela.")
             return
 
         # 2. Pega o item (célula) específico naquela linha e coluna
