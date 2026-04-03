@@ -14,7 +14,9 @@ class Ui_MainWindow(object):
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1315, 902)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\logodix.ico"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
+        #Comentei essa linha abaixo para conseguir carregar as imagens quando executar o código no meu laptop, se não carregar as imagens no pc, descomente essa linha e comente a linha seguinte, lembrando de colocar o caminho correto da imagem no seu pc
+        #icon.addPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\logodix.ico"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
+        icon.addPixmap(QtGui.QPixmap("logodix.ico"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         MainWindow.setWindowIcon(icon)
         MainWindow.setDocumentMode(False)
         self.centralwidget = QtWidgets.QWidget(parent=MainWindow)
@@ -34,7 +36,9 @@ class Ui_MainWindow(object):
         self.DOM_COMPREP.setMaximumSize(QtCore.QSize(90, 110))
         self.DOM_COMPREP.setStyleSheet("")
         self.DOM_COMPREP.setText("")
-        self.DOM_COMPREP.setPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\COMPREP1.png"))
+        #Comentei essa linha abaixo para conseguir carregar as imagens quando executar o código no meu laptop, se não carregar as imagens no pc, descomente essa linha e comente a linha seguinte, lembrando de colocar o caminho correto da imagem no seu pc
+        #self.DOM_COMPREP.setPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\COMPREP1.png"))
+        self.DOM_COMPREP.setPixmap(QtGui.QPixmap("COMPREP1.png"))
         self.DOM_COMPREP.setScaledContents(True)
         self.DOM_COMPREP.setObjectName("DOM_COMPREP")
         self.horizontalLayout.addWidget(self.DOM_COMPREP)
@@ -74,7 +78,9 @@ class Ui_MainWindow(object):
         self.DOM_IAOp.setMaximumSize(QtCore.QSize(90, 110))
         self.DOM_IAOp.setStyleSheet("")
         self.DOM_IAOp.setText("")
-        self.DOM_IAOp.setPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\iaop.png"))
+        #Comentei essa linha abaixo para conseguir carregar as imagens quando executar o código no meu laptop, se não carregar as imagens no pc, descomente essa linha e comente a linha seguinte, lembrando de colocar o caminho correto da imagem no seu pc
+        #self.DOM_IAOp.setPixmap(QtGui.QPixmap("c:\\Users\\vitorvhfca\\OneDrive\\IAOP\\PYTHON_ONEDRIVE\\Tesserato2.0\\iaop.png"))
+        self.DOM_IAOp.setPixmap(QtGui.QPixmap("iaop.png"))
         self.DOM_IAOp.setScaledContents(True)
         self.DOM_IAOp.setObjectName("DOM_IAOp")
         self.horizontalLayout.addWidget(self.DOM_IAOp)
