@@ -756,7 +756,7 @@ class UI(QMainWindow):
 
         # --- CONJUNTO DE BLOCOS DE MILITARES QUE QUEREM SAIR DA SELVA + SANTA CRUZ ---
         # Dica: Colocamos variações com e sem acento para garantir
-        loc_bloco_a = ["CACHIMBO", "EIRUNEPÊ", "EIRUNEPE",
+        loc_bloco_a = ["GUARANTÃ DO NORTE", "EIRUNEPÊ", "EIRUNEPE",
                        "SÃO GABRIEL DA CACHOEIRA", "SAO GABRIEL DA CACHOEIRA", "VILHENA"]
         loc_bloco_b = ["BOA VISTA", "PORTO VELHO"]
         loc_bloco_c = ["MANAUS", "BELÉM", "BELEM"]
@@ -851,18 +851,34 @@ class UI(QMainWindow):
                 by=cols_finais, ascending=asc_finais)
             df_plamov_compilado = df_plamov_compilado.reset_index(drop=True)
 
+        # --- CRIAÇÃO DOS DATAFRAMES POR GRUPO ---
+        # Filtramos o DataFrame principal com base nos scores definidos anteriormente
+        self.df_grupo_a = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 40].copy()
+        self.df_grupo_b = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 30].copy()
+        self.df_grupo_c = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 20].copy()
+        self.df_grupo_d = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 10].copy()
+        self.df_grupo_e = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 9].copy()
+        self.df_grupo_f = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 8].copy()
+        self.df_grupo_g = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 7].copy()
+        # Grupo dos que não entraram em nenhuma regra (Score 0)
+        self.df_sem_prioridade = df_plamov_compilado[df_plamov_compilado['SCORE_PRIORIDADE'] == 0].copy()
+
+        # Exemplo de Log para conferência no terminal
+        print(f"--- Divisão de Blocos Concluída ---")
+        print(f"A: {len(self.df_grupo_a)} | B: {len(self.df_grupo_b)} | C: {len(self.df_grupo_c)} | D: {len(self.df_grupo_d)}")
+        print(f"E: {len(self.df_grupo_e)} | F: {len(self.df_grupo_f)} | G: {len(self.df_grupo_g)} | Restante: {len(self.df_sem_prioridade)}")
+
     # ---  FUNÇÃO PARA COLORIR O SARAM DOS MILITARES COM PRIORIDADE ESPECIAL DOS BLOCOS A, B, C, D ---
     # --- FUNÇÃO PARA COLORIR O SARAM E ADICIONAR DICA (TOOLTIP) ---
     def destacar_saram_prioritarios(self):
         global df_plamov_compilado
-        # ... (mantém o início igual)
 
         mapa_blocos = {
-            40: "Bloco A: quer sair deCACHIMBO, EIRUNEPÊ, SÃO GABRIEL, VILHENA",
+            40: "Bloco A: quer sair de CACHIMBO, EIRUNEPÊ, SÃO GABRIEL, VILHENA",
             30: "Bloco B: quer sair de Boa Vista / Porto Velho",
             20: "Bloco C: quer sair de Manaus / Belém",
-            10: "Bloco D: quer sair de Santa Cruz",
-            9: "Bloco E: quer ir para Santa Cruz",
+            10: "Bloco D: quer sair de Santa Cruz", 
+            9: "Bloco E: quer ir para CACHIMBO, EIRUNEPÊ, SÃO GABRIEL, VILHENA",
             8: "Bloco F: quer ir para Boa Vista / Porto Velho / Manaus / Belém",
             7: "Bloco G: quer ir para OMs em Santa Cruz"
         }
@@ -1201,7 +1217,7 @@ class UI(QMainWindow):
                 return
 
             # =========================================================
-            # GRÁFICO 1: TERMÔMETRO DE SATISFAÇÃO (O que você pediu)
+            # GRÁFICO 1: TERMÔMETRO DE SATISFAÇÃO
             # =========================================================
 
             # Precisamos mapear a OM de Destino (PLAMOV) para sua Localidade
