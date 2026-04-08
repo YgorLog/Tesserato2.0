@@ -703,7 +703,7 @@ class UI(QMainWindow):
                 if col in df_plamov_compilado.columns:
                     # 1. Converte para objeto de data (garante que o Pandas entenda)
                     # errors='coerce' transforma textos ruins em NaT (Not a Time)
-                    datas_convertidas = pd.to_datetime(df_plamov_compilado[col], errors='coerce')
+                    datas_convertidas = pd.to_datetime(df_plamov_compilado[col], dayfirst=True, errors='coerce')
                     
                     # 2. Converte para String no formato DD/MM/AAAA
                     # .dt.strftime faz a mágica. Onde for NaT, vira NaN, e o fillna limpa.
