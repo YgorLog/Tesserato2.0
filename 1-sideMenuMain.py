@@ -784,6 +784,7 @@ class UI(QMainWindow):
                        "SÃO GABRIEL DA CACHOEIRA", "SAO GABRIEL DA CACHOEIRA", "VILHENA"]
         loc_bloco_b = ["BOA VISTA", "PORTO VELHO"]
         loc_bloco_c = ["MANAUS", "BELÉM", "BELEM"]
+        loc_bloco_d = ["1 GAVCA", "1/7 GAV","3/8 GAV","BASC","GLOG-SC","GSAU-SC","GSD-SC"]
 
         # 2. Garante que as colunas necessárias existem
         # ATENÇÃO: Agora olhamos para "LOC ATUAL" em vez de "OM ATUAL"
@@ -802,6 +803,8 @@ class UI(QMainWindow):
             # Normaliza o texto da LOCALIDADE (Maiúsculo e sem espaços extras)
             serie_loc_atual = df_plamov_compilado["LOC ATUAL"].astype(
                 str).str.strip().str.upper()
+            # Adicione esta linha onde você normaliza os dados
+            serie_om_atual = df_plamov_compilado["OM ATUAL"].astype(str).str.strip().str.upper()
             serie_tempo = df_plamov_compilado["TEMPO LOC"]
 
             # --- DEFINIÇÃO DAS REGRAS (AGORA POR LOCALIDADE) ---
@@ -818,8 +821,11 @@ class UI(QMainWindow):
             cond_c = serie_loc_atual.isin(
                 [x.upper() for x in loc_bloco_c]) & (serie_tempo >= 5)
 
-            # Bloco D: Qualquer Localidade (>= 8 anos)
-            cond_d = (serie_tempo >= 8)
+            # Bloco D: Santa Cruz (>= 6 anos)
+            cond_d = serie_om_atual.isin(
+                [x.upper() for x in loc_bloco_d]) & (serie_tempo >= 6)
+            
+            
 
             # --- SISTEMA DE PONTUAÇÃO (HIERARQUIA) ---
             # A função np.select respeita a ordem: Se for A, ganha 40 e sai. Se não, testa B...
