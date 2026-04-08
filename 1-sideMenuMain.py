@@ -415,26 +415,6 @@ class GraficoCanvas(FigureCanvas):
 
 # --- CLASSE PARA CORRIGIR A COR DA SELEÇÃO ---
 
-
-class ColorDelegate(QtWidgets.QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        # Verifica se a célula está selecionada
-        if option.state & QtWidgets.QStyle.StateFlag.State_Selected:
-            # Tenta pegar a cor de texto definida na célula (Vermelho ou Preto)
-            color_data = index.data(QtCore.Qt.ItemDataRole.ForegroundRole)
-
-            if color_data:
-                # Se tiver cor (ex: Vermelho), obriga a seleção a usar essa cor
-                option.palette.setColor(
-                    QtGui.QPalette.ColorGroup.All, QtGui.QPalette.ColorRole.HighlightedText, color_data.color())
-            else:
-                # Se não tiver cor definida, força PRETO (para não ficar branco)
-                option.palette.setColor(
-                    QtGui.QPalette.ColorGroup.All, QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("black"))
-# ---------------------------------------------
-
-
 class UI(QMainWindow):
     global df_plamov_compilado
 
@@ -445,11 +425,7 @@ class UI(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
-
-        # Isso ativa a correção de cores na tabela da esquerda
-        self.ui.tableWidget.setItemDelegate(ColorDelegate(self.ui.tableWidget))
-        # ---------------------------
-
+        
         # 1. Obriga a tabela a selecionar a LINHA INTEIRA ao clicar, não só a célula
         self.ui.tableWidget.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -778,13 +754,24 @@ class UI(QMainWindow):
         if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
             return
 
-        # --- 1. DEFINIÇÃO DAS LOCALIDADES (NORMALIZADAS) ---
+        # --- CONJUNTO DE BLOCOS DE MILITARES QUE QUEREM SAIR DA SELVA + SANTA CRUZ ---
         # Dica: Colocamos variações com e sem acento para garantir
         loc_bloco_a = ["CACHIMBO", "EIRUNEPÊ", "EIRUNEPE",
                        "SÃO GABRIEL DA CACHOEIRA", "SAO GABRIEL DA CACHOEIRA", "VILHENA"]
         loc_bloco_b = ["BOA VISTA", "PORTO VELHO"]
         loc_bloco_c = ["MANAUS", "BELÉM", "BELEM"]
         loc_bloco_d = ["1 GAVCA", "1/7 GAV","3/8 GAV","BASC","GLOG-SC","GSAU-SC","GSD-SC"]
+
+        if "LOC 1" in df_plamov_compilado.columns:
+            # Normaliza as 3 opções para comparação
+            s_l1 = df_plamov_compilado["LOC 1"].astype(str).str.strip().str.upper()
+            s_l2 = df_plamov_compilado["LOC 2"].astype(str).str.strip().str.upper()
+            s_l3 = df_plamov_compilado["LOC 3"].astype(str).str.strip().str.upper()
+
+            # Regra: Se a localidade estiver em QUALQUER uma das 3 opções
+            cond_quer_localidades_d = (s_l1.isin(loc_bloco_a) | s_l2.isin(loc_bloco_a) | s_l3.isin(loc_bloco_a))
+            cond_quer_localidades_c_e_b = (s_l1.isin(loc_bloco_b) | s_l2.isin(loc_bloco_b) | s_l3.isin(loc_bloco_b)) | (s_l1.isin(loc_bloco_c) | s_l2.isin(loc_bloco_c) | s_l3.isin(loc_bloco_c))
+            cond_quer_OMs_em_Santa_Cruz = (s_l1.isin(loc_bloco_d) | s_l2.isin(loc_bloco_d) | s_l3.isin(loc_bloco_d))
 
         # 2. Garante que as colunas necessárias existem
         # ATENÇÃO: Agora olhamos para "LOC ATUAL" em vez de "OM ATUAL"
@@ -832,15 +819,15 @@ class UI(QMainWindow):
             # Isso impede que alguém de Boa Vista com 10 anos caia no Bloco D (10 pts).
             # Como B vem antes, ele garante os 30 pts.
 
-            condicoes = [cond_a, cond_b, cond_c, cond_d]
-            pontos = [40,     30,     20,     10]
+            condicoes = [cond_a, cond_b, cond_c, cond_d, cond_quer_localidades_d, cond_quer_localidades_c_e_b, cond_quer_OMs_em_Santa_Cruz]
+            pontos = [40,     30,     20,     10, 9 , 8, 7]
 
             # Cria coluna auxiliar de Score
             df_plamov_compilado['SCORE_PRIORIDADE'] = np.select(
                 condicoes, pontos, default=0)
 
             # 4. Define a ordem final
-            # 1º: SCORE (Decrescente -> 40, 30, 20, 10, 0)
+            # 1º: SCORE (Decrescente -> 40, 30, 20, 10, 9, 8, 7, 0)
             # 2º: MELHOR PRIO (Crescente -> 1ª Opção melhor que 2ª)
             # 3º: TEMPO LOC (Decrescente -> Quanto mais tempo, mais no topo dentro do mesmo bloco)
             # 4º: ANTIGUIDADE (Crescente -> Mais antigo primeiro)
@@ -868,37 +855,33 @@ class UI(QMainWindow):
     # --- FUNÇÃO PARA COLORIR O SARAM E ADICIONAR DICA (TOOLTIP) ---
     def destacar_saram_prioritarios(self):
         global df_plamov_compilado
+        # ... (mantém o início igual)
 
-        # Verifica se o cálculo de prioridade já foi feito
-        if 'SCORE_PRIORIDADE' not in df_plamov_compilado.columns:
-            return
+        mapa_blocos = {
+            40: "Bloco A: quer sair deCACHIMBO, EIRUNEPÊ, SÃO GABRIEL, VILHENA",
+            30: "Bloco B: quer sair de Boa Vista / Porto Velho",
+            20: "Bloco C: quer sair de Manaus / Belém",
+            10: "Bloco D: quer sair de Santa Cruz",
+            9: "Bloco E: quer ir para Santa Cruz",
+            8: "Bloco F: quer ir para Boa Vista / Porto Velho / Manaus / Belém",
+            7: "Bloco G: quer ir para OMs em Santa Cruz"
+        }
 
-        # Define qual coluna é o SARAM (Baseado na sua lista: LOC ATUAL(0), OM ATUAL(1), SARAM(2))
-        coluna_saram = 2
-
-        # Percorre todas as linhas da tabela visual
         for row in range(self.ui.tableWidget.rowCount()):
-            # Garante que não vamos acessar um índice que não existe no DataFrame
             if row < len(df_plamov_compilado):
-
-                # Verifica a pontuação do militar nessa linha
                 score = df_plamov_compilado.at[row, 'SCORE_PRIORIDADE']
-
-                # Se for maior que 0, significa que caiu no Bloco A, B, C ou D
+                
                 if score > 0:
-                    item = self.ui.tableWidget.item(row, coluna_saram)
-                    if item:
-                        # 1. Pinta o texto de Vermelho
-                        item.setForeground(QtGui.QColor("red"))
-
-                        # # 2. Deixa em Negrito
-                        # font = item.font()
-                        # font.setBold(True)
-                        # item.setFont(font)
-
-                        # 3. ADICIONA A OBSERVAÇÃO AO PASSAR O MOUSE (NOVIDADE)
-                        item.setToolTip(
-                            "Prioridade Especial: Tempo de Localidade")
+                    # Aplica o tooltip em todas as células daquela linha
+                    for col in range(self.ui.tableWidget.columnCount()):
+                        item = self.ui.tableWidget.item(row, col)
+                        if item:
+                            # Define o aviso que aparece ao parar o mouse
+                            item.setToolTip(mapa_blocos.get(score, "Prioridade Especial"))
+                            
+                            # Mantém o SARAM em vermelho (coluna 2)
+                            if col == 2:
+                                item.setForeground(QtGui.QColor("red"))
 
     # passar as páginas
     def Pag_Militares(self):
