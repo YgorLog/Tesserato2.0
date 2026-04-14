@@ -454,8 +454,75 @@ class UI(QMainWindow):
         self.actionGraficos.triggered.connect(lambda: self.Pag_Graficos())
 
         # =================================================================
+        # 3. CRIAÇÃO DA PÁGINA DE MILITARES PRIORITÁRIOS (BLOCOS A, B, C, D)
+        # =================================================================
+        self.page_prioritarios = QtWidgets.QWidget()
+        self.layout_prioritarios = QtWidgets.QVBoxLayout(self.page_prioritarios)
 
-        # 3. Define a cor do destaque (Amarelo com letra preta) usando CSS (QSS)
+        # Título da página
+        lbl_titulo_prio = QtWidgets.QLabel("Militares Prioritários (Blocos A, B, C e D)")
+        lbl_titulo_prio.setStyleSheet(
+            "font-size: 16px; font-weight: bold; padding: 10px;")
+        lbl_titulo_prio.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.layout_prioritarios.addWidget(lbl_titulo_prio)
+
+        # Label de resumo com contagem por bloco
+        self.lbl_resumo_prio = QtWidgets.QLabel("")
+        self.lbl_resumo_prio.setStyleSheet(
+            "font-size: 12px; padding: 5px; color: #555;")
+        self.lbl_resumo_prio.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.layout_prioritarios.addWidget(self.lbl_resumo_prio)
+
+        # Legenda de cores dos blocos
+        widget_legenda = QtWidgets.QWidget()
+        layout_legenda = QtWidgets.QHBoxLayout(widget_legenda)
+        layout_legenda.setContentsMargins(10, 0, 10, 5)
+        legendas = [
+            ("Bloco A — Localidades Difíceis (≥ 2 anos)", "#DC3545"),
+            ("Bloco B — Boa Vista / Porto Velho (≥ 4 anos)", "#FF9900"),
+            ("Bloco C — Manaus / Belém (≥ 5 anos)", "#FFC107"),
+            ("Bloco D — Santa Cruz (≥ 6 anos)", "#007BFF"),
+        ]
+        for texto_leg, cor_leg in legendas:
+            lbl = QtWidgets.QLabel(f"  ■ {texto_leg}")
+            lbl.setStyleSheet(f"color: {cor_leg}; font-weight: bold; font-size: 11px;")
+            layout_legenda.addWidget(lbl)
+        layout_legenda.addStretch()
+        self.layout_prioritarios.addWidget(widget_legenda)
+
+        # Tabela de prioritários
+        self.tableWidget_prioritarios = QtWidgets.QTableWidget()
+        self.tableWidget_prioritarios.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tableWidget_prioritarios.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.tableWidget_prioritarios.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidget_prioritarios.setStyleSheet("""
+            QTableWidget::item:selected {
+                background-color: #7f807c;
+            }
+            QTableWidget::item:selected:focus {
+                outline: none;
+            }
+            QHeaderView::section {
+                padding-right: 5px;
+                padding-left: 5px;
+            }
+        """)
+        self.layout_prioritarios.addWidget(self.tableWidget_prioritarios)
+
+        self.ui.stackedWidget.addWidget(self.page_prioritarios)
+
+        # Botão no menu
+        self.actionPrioritarios = QtGui.QAction("Militares Prioritários", self)
+        self.ui.menuMenu.addAction(self.actionPrioritarios)
+        self.actionPrioritarios.triggered.connect(
+            lambda: self.Pag_Prioritarios())
+
+        # =================================================================
+
+        # 4. Define a cor do destaque (Amarelo com letra preta) usando CSS (QSS)
         # O 'outline: none' remove aquele pontilhado em volta da célula
         self.ui.tableWidget.setStyleSheet("""
             QTableWidget::item:selected {
@@ -911,6 +978,109 @@ class UI(QMainWindow):
 
     def Pag_Mapa(self):
         self.ui.stackedWidget.setCurrentIndex(3)
+
+    def Pag_Prioritarios(self):
+        """Navega para a página de militares prioritários e atualiza a tabela."""
+        indice = self.ui.stackedWidget.indexOf(self.page_prioritarios)
+        self.ui.stackedWidget.setCurrentIndex(indice)
+        self.popular_tabela_prioritarios()
+
+    def popular_tabela_prioritarios(self):
+        """Preenche a tabela com os militares dos Blocos A, B, C e D."""
+        global df_plamov_compilado
+
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            self.tableWidget_prioritarios.setRowCount(0)
+            self.lbl_resumo_prio.setText("Nenhum dado carregado.")
+            return
+
+        if 'SCORE_PRIORIDADE' not in df_plamov_compilado.columns:
+            self.tableWidget_prioritarios.setRowCount(0)
+            self.lbl_resumo_prio.setText(
+                "Execute a ordenação primeiro (carregue os dados dos militares).")
+            return
+
+        # Filtra apenas blocos A (40), B (30), C (20) e D (10)
+        scores_alvo = [40, 30, 20, 10]
+        df_filtrado = df_plamov_compilado[
+            df_plamov_compilado['SCORE_PRIORIDADE'].isin(scores_alvo)
+        ].copy()
+
+        if df_filtrado.empty:
+            self.tableWidget_prioritarios.setRowCount(0)
+            self.lbl_resumo_prio.setText(
+                "Nenhum militar se enquadra nos blocos A, B, C ou D.")
+            return
+
+        # Mapeamento de scores para nomes de blocos
+        mapa_blocos = {40: "A", 30: "B", 20: "C", 10: "D"}
+        df_filtrado['BLOCO'] = df_filtrado['SCORE_PRIORIDADE'].map(mapa_blocos)
+
+        # Resumo com contagem por bloco
+        contagem = df_filtrado['BLOCO'].value_counts().sort_index()
+        resumo_parts = []
+        for bloco_letra in ['A', 'B', 'C', 'D']:
+            qtd = contagem.get(bloco_letra, 0)
+            resumo_parts.append(f"Bloco {bloco_letra}: {qtd}")
+        total = len(df_filtrado)
+        self.lbl_resumo_prio.setText(
+            f"Total: {total} militares  |  " + "  |  ".join(resumo_parts))
+
+        # Colunas a exibir (BLOCO na frente para destaque visual)
+        COLUNAS_DESEJADAS = [
+            "BLOCO", "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO",
+            "ESP", "PROJETO", "TEMPO LOC", "LOC 1", "LOC 2", "LOC 3", "PLAMOV"
+        ]
+        colunas_existentes = [
+            col for col in COLUNAS_DESEJADAS if col in df_filtrado.columns]
+
+        self.tableWidget_prioritarios.setColumnCount(len(colunas_existentes))
+        self.tableWidget_prioritarios.setRowCount(len(df_filtrado))
+        self.tableWidget_prioritarios.setHorizontalHeaderLabels(
+            colunas_existentes)
+
+        # Cores por bloco
+        cores_bloco = {
+            "A": QtGui.QColor(220, 53, 69),    # Vermelho
+            "B": QtGui.QColor(255, 153, 0),    # Laranja
+            "C": QtGui.QColor(255, 193, 7),    # Amarelo
+            "D": QtGui.QColor(0, 123, 255),    # Azul
+        }
+
+        # Tooltip descritivo por bloco
+        dicas_bloco = {
+            "A": "Bloco A: Guarantã do Norte, Eirunepê, São Gabriel, Vilhena (≥ 2 anos)",
+            "B": "Bloco B: Boa Vista / Porto Velho (≥ 4 anos)",
+            "C": "Bloco C: Manaus / Belém (≥ 5 anos)",
+            "D": "Bloco D: Santa Cruz (≥ 6 anos)",
+        }
+
+        # Preenchimento visual
+        for i, (idx_original, row_data) in enumerate(df_filtrado.iterrows()):
+            bloco = row_data.get('BLOCO', '')
+            cor_bloco = cores_bloco.get(bloco, QtGui.QColor(255, 255, 255))
+            dica = dicas_bloco.get(bloco, "")
+
+            for j, col_name in enumerate(colunas_existentes):
+                valor = str(row_data.get(col_name, ''))
+                item = QtWidgets.QTableWidgetItem(valor)
+                item.setToolTip(dica)
+
+                # Coluna BLOCO recebe cor forte do bloco
+                if col_name == "BLOCO":
+                    item.setBackground(cor_bloco)
+                    item.setForeground(QtGui.QColor(255, 255, 255))
+                    item.setTextAlignment(
+                        QtCore.Qt.AlignmentFlag.AlignCenter)
+                else:
+                    # Coloração alternada para as demais colunas
+                    if i % 2:
+                        item.setBackground(QtGui.QColor(100, 139, 245))
+
+                self.tableWidget_prioritarios.setItem(i, j, item)
+
+        # Ajusta largura das colunas ao conteúdo
+        self.tableWidget_prioritarios.resizeColumnsToContents()
 
     def alerta_deficit(self):
         pass
