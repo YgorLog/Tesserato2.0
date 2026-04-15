@@ -61,6 +61,18 @@ linha_alterada = -1
 coluna_alterada = -1
 counter = 0
 
+# Inicialização de variáveis globais para evitar avisos de 'name not found' no IDE
+df_plamov_compilado = pd.DataFrame()
+df_TP = pd.DataFrame()
+df_TP_BMA = pd.DataFrame()
+df_OMs = pd.DataFrame()
+endereco_do_arquivo = ""
+linha_selecionada_painel_esquerda = -1
+coluna_ativa_painel_esquerda = -1
+posto = ""
+quadro = ""
+especialidade = ""
+
 
 def classificar(dataframe: pd.DataFrame):
     return dataframe.sort_values(by=['MELHOR PRIO', 'TEMPO LOC', 'ANTIGUIDADE'], ascending=[True, False, True], inplace=True)
@@ -416,16 +428,11 @@ class GraficoCanvas(FigureCanvas):
 # --- CLASSE PARA CORRIGIR A COR DA SELEÇÃO ---
 
 class UI(QMainWindow):
-    global df_plamov_compilado
-
     def __init__(self):
         QMainWindow.__init__(self)
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
-        self.ui = Ui_MainWindow()
-        self.ui.setupUi(self)
-        
         # 1. Obriga a tabela a selecionar a LINHA INTEIRA ao clicar, não só a célula
         self.ui.tableWidget.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -458,39 +465,49 @@ class UI(QMainWindow):
         # =================================================================
         self.page_prioritarios = QtWidgets.QWidget()
         self.layout_prioritarios = QtWidgets.QVBoxLayout(self.page_prioritarios)
+        self.layout_prioritarios.setContentsMargins(2, 2, 2, 2)
+        self.layout_prioritarios.setSpacing(0)
 
-        # Título da página
+        # Linha 1: Título + Resumo lado a lado (altura fixa)
+        widget_titulo_resumo = QtWidgets.QWidget()
+        widget_titulo_resumo.setFixedHeight(24)
+        layout_titulo_resumo = QtWidgets.QHBoxLayout(widget_titulo_resumo)
+        layout_titulo_resumo.setContentsMargins(5, 0, 5, 0)
+        layout_titulo_resumo.setSpacing(15)
+
         lbl_titulo_prio = QtWidgets.QLabel("Militares Prioritários (Blocos A, B, C e D)")
-        lbl_titulo_prio.setStyleSheet(
-            "font-size: 16px; font-weight: bold; padding: 10px;")
-        lbl_titulo_prio.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.layout_prioritarios.addWidget(lbl_titulo_prio)
+        lbl_titulo_prio.setStyleSheet("font-size: 13px; font-weight: bold;")
+        layout_titulo_resumo.addWidget(lbl_titulo_prio)
 
-        # Label de resumo com contagem por bloco
         self.lbl_resumo_prio = QtWidgets.QLabel("")
-        self.lbl_resumo_prio.setStyleSheet(
-            "font-size: 12px; padding: 5px; color: #555;")
-        self.lbl_resumo_prio.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.layout_prioritarios.addWidget(self.lbl_resumo_prio)
+        self.lbl_resumo_prio.setStyleSheet("font-size: 11px; color: #555;")
+        layout_titulo_resumo.addWidget(self.lbl_resumo_prio)
+        layout_titulo_resumo.addStretch()
+        self.layout_prioritarios.addWidget(widget_titulo_resumo)
 
-        # Legenda de cores dos blocos
+        # Linha 2: Legenda de cores dos blocos (altura fixa)
         widget_legenda = QtWidgets.QWidget()
+        widget_legenda.setFixedHeight(20)
         layout_legenda = QtWidgets.QHBoxLayout(widget_legenda)
-        layout_legenda.setContentsMargins(10, 0, 10, 5)
+        layout_legenda.setContentsMargins(5, 0, 5, 0)
+        layout_legenda.setSpacing(8)
         legendas = [
-            ("Bloco A — Localidades Difíceis (≥ 2 anos)", "#DC3545"),
-            ("Bloco B — Boa Vista / Porto Velho (≥ 4 anos)", "#FF9900"),
-            ("Bloco C — Manaus / Belém (≥ 5 anos)", "#FFC107"),
-            ("Bloco D — Santa Cruz (≥ 6 anos)", "#007BFF"),
+            ("A — Loc. Difíceis (≥2a)", "#DC3545"),
+            ("B — BV/PV (≥4a)", "#FF9900"),
+            ("C — MN/BE (≥5a)", "#FFC107"),
+            ("D — Santa Cruz (≥6a)", "#007BFF"),
         ]
         for texto_leg, cor_leg in legendas:
-            lbl = QtWidgets.QLabel(f"  ■ {texto_leg}")
-            lbl.setStyleSheet(f"color: {cor_leg}; font-weight: bold; font-size: 11px;")
+            lbl = QtWidgets.QLabel(f"■ {texto_leg}")
+            lbl.setStyleSheet(f"color: {cor_leg}; font-weight: bold; font-size: 10px;")
             layout_legenda.addWidget(lbl)
         layout_legenda.addStretch()
         self.layout_prioritarios.addWidget(widget_legenda)
 
-        # Tabela de prioritários
+        # --- SPLITTER HORIZONTAL: TABELA ESQUERDA + PAINEL DIREITO ---
+        self.splitter_prioritarios = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+
+        # Tabela de prioritários (ESQUERDA)
         self.tableWidget_prioritarios = QtWidgets.QTableWidget()
         self.tableWidget_prioritarios.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
@@ -510,7 +527,66 @@ class UI(QMainWindow):
                 padding-left: 5px;
             }
         """)
-        self.layout_prioritarios.addWidget(self.tableWidget_prioritarios)
+        self.splitter_prioritarios.addWidget(self.tableWidget_prioritarios)
+
+        # Painel Direito (DIREITA) — container com título + legenda + tabela de OMs
+        self.widget_painel_dir_prio = QtWidgets.QWidget()
+        layout_dir_prio = QtWidgets.QVBoxLayout(self.widget_painel_dir_prio)
+        layout_dir_prio.setContentsMargins(0, 0, 0, 0)
+        layout_dir_prio.setSpacing(0)
+
+        # Título do painel direito
+        lbl_titulo_dir = QtWidgets.QLabel("OMs Disponíveis")
+        lbl_titulo_dir.setFixedHeight(22)
+        lbl_titulo_dir.setStyleSheet("font-size: 12px; font-weight: bold;")
+        lbl_titulo_dir.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout_dir_prio.addWidget(lbl_titulo_dir)
+
+        # Legenda de cores das opções
+        widget_legenda_dir = QtWidgets.QWidget()
+        widget_legenda_dir.setFixedHeight(18)
+        layout_legenda_dir = QtWidgets.QHBoxLayout(widget_legenda_dir)
+        layout_legenda_dir.setContentsMargins(5, 0, 5, 0)
+        layout_legenda_dir.setSpacing(6)
+        legendas_opcoes = [
+            ("1ª Opção", "#1DB502"),
+            ("2ª Opção", "#FFF308"),
+            ("3ª Opção", "#FF00FF"),
+        ]
+        for texto_op, cor_op in legendas_opcoes:
+            lbl_op = QtWidgets.QLabel(f"■ {texto_op}")
+            lbl_op.setStyleSheet(f"color: {cor_op}; font-weight: bold; font-size: 9px;")
+            layout_legenda_dir.addWidget(lbl_op)
+        layout_legenda_dir.addStretch()
+        layout_dir_prio.addWidget(widget_legenda_dir)
+
+        # Tabela de OMs do painel direito dos prioritários
+        self.tableWidget_prio_direita = QtWidgets.QTableWidget()
+        self.tableWidget_prio_direita.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tableWidget_prio_direita.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.tableWidget_prio_direita.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidget_prio_direita.setStyleSheet("""
+            QTableWidget::item:selected {
+                background-color: #7f807c;
+            }
+            QTableWidget::item:selected:focus {
+                outline: none;
+            }
+            QHeaderView::section {
+                padding-right: 5px;
+                padding-left: 5px;
+            }
+        """)
+        layout_dir_prio.addWidget(self.tableWidget_prio_direita)
+        self.splitter_prioritarios.addWidget(self.widget_painel_dir_prio)
+
+        # Proporção inicial do Splitter (70% esquerda, 30% direita)
+        self.splitter_prioritarios.setStretchFactor(0, 7)
+        self.splitter_prioritarios.setStretchFactor(1, 3)
+        self.layout_prioritarios.addWidget(self.splitter_prioritarios, 1)
 
         self.ui.stackedWidget.addWidget(self.page_prioritarios)
 
@@ -520,7 +596,139 @@ class UI(QMainWindow):
         self.actionPrioritarios.triggered.connect(
             lambda: self.Pag_Prioritarios())
 
+        # Conexão: clique na tabela de prioritários atualiza o painel direito
+        self.tableWidget_prioritarios.cellClicked.connect(
+            lambda: self.atualizar_Painel_Direita_Prioritarios())
+
+        # Armazena o DataFrame filtrado para uso no painel direito
+        self.df_prioritarios_filtrado = pd.DataFrame()
+
         # =================================================================
+        # 3B. CRIAÇÃO DA PÁGINA "QUEREM LOC. DIFÍCEIS" (cond_quer_localidades_d / Score 9)
+        # =================================================================
+        self.page_quer_loc_dificeis = QtWidgets.QWidget()
+        self.layout_quer_loc_dificeis = QtWidgets.QVBoxLayout(self.page_quer_loc_dificeis)
+        self.layout_quer_loc_dificeis.setContentsMargins(2, 2, 2, 2)
+        self.layout_quer_loc_dificeis.setSpacing(0)
+
+        # Linha 1: Título + Resumo lado a lado (altura fixa)
+        widget_titulo_qld = QtWidgets.QWidget()
+        widget_titulo_qld.setFixedHeight(24)
+        layout_titulo_qld = QtWidgets.QHBoxLayout(widget_titulo_qld)
+        layout_titulo_qld.setContentsMargins(5, 0, 5, 0)
+        layout_titulo_qld.setSpacing(15)
+
+        lbl_titulo_qld = QtWidgets.QLabel("Querem Loc. Difíceis (Guarantã, Eirunepê, S. Gabriel, Vilhena)")
+        lbl_titulo_qld.setStyleSheet("font-size: 13px; font-weight: bold;")
+        layout_titulo_qld.addWidget(lbl_titulo_qld)
+
+        self.lbl_resumo_qld = QtWidgets.QLabel("")
+        self.lbl_resumo_qld.setStyleSheet("font-size: 11px; color: #555;")
+        layout_titulo_qld.addWidget(self.lbl_resumo_qld)
+        layout_titulo_qld.addStretch()
+        self.layout_quer_loc_dificeis.addWidget(widget_titulo_qld)
+
+        # Linha 2: Descrição curta (altura fixa)
+        widget_desc_qld = QtWidgets.QWidget()
+        widget_desc_qld.setFixedHeight(18)
+        layout_desc_qld = QtWidgets.QHBoxLayout(widget_desc_qld)
+        layout_desc_qld.setContentsMargins(5, 0, 5, 0)
+        lbl_desc_qld = QtWidgets.QLabel("Militares que escolheram localidades difíceis em pelo menos uma das 3 opções")
+        lbl_desc_qld.setStyleSheet("font-size: 10px; color: #888;")
+        layout_desc_qld.addWidget(lbl_desc_qld)
+        layout_desc_qld.addStretch()
+        self.layout_quer_loc_dificeis.addWidget(widget_desc_qld)
+
+        # --- SPLITTER HORIZONTAL: TABELA ESQUERDA + PAINEL DIREITO ---
+        self.splitter_qld = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+
+        # Tabela esquerda
+        self.tableWidget_qld = QtWidgets.QTableWidget()
+        self.tableWidget_qld.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tableWidget_qld.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.tableWidget_qld.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidget_qld.setStyleSheet("""
+            QTableWidget::item:selected {
+                background-color: #7f807c;
+            }
+            QTableWidget::item:selected:focus {
+                outline: none;
+            }
+            QHeaderView::section {
+                padding-right: 5px;
+                padding-left: 5px;
+            }
+        """)
+        self.splitter_qld.addWidget(self.tableWidget_qld)
+
+        # Painel Direito — container com título + legenda + tabela de OMs
+        self.widget_painel_dir_qld = QtWidgets.QWidget()
+        layout_dir_qld = QtWidgets.QVBoxLayout(self.widget_painel_dir_qld)
+        layout_dir_qld.setContentsMargins(0, 0, 0, 0)
+        layout_dir_qld.setSpacing(0)
+
+        lbl_titulo_dir_qld = QtWidgets.QLabel("OMs Disponíveis")
+        lbl_titulo_dir_qld.setFixedHeight(22)
+        lbl_titulo_dir_qld.setStyleSheet("font-size: 12px; font-weight: bold;")
+        lbl_titulo_dir_qld.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout_dir_qld.addWidget(lbl_titulo_dir_qld)
+
+        widget_legenda_dir_qld = QtWidgets.QWidget()
+        widget_legenda_dir_qld.setFixedHeight(18)
+        layout_legenda_dir_qld = QtWidgets.QHBoxLayout(widget_legenda_dir_qld)
+        layout_legenda_dir_qld.setContentsMargins(5, 0, 5, 0)
+        layout_legenda_dir_qld.setSpacing(6)
+        for texto_op, cor_op in [("1ª Opção", "#1DB502"), ("2ª Opção", "#FFF308"), ("3ª Opção", "#FF00FF")]:
+            lbl_op = QtWidgets.QLabel(f"■ {texto_op}")
+            lbl_op.setStyleSheet(f"color: {cor_op}; font-weight: bold; font-size: 9px;")
+            layout_legenda_dir_qld.addWidget(lbl_op)
+        layout_legenda_dir_qld.addStretch()
+        layout_dir_qld.addWidget(widget_legenda_dir_qld)
+
+        self.tableWidget_qld_direita = QtWidgets.QTableWidget()
+        self.tableWidget_qld_direita.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tableWidget_qld_direita.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.tableWidget_qld_direita.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tableWidget_qld_direita.setStyleSheet("""
+            QTableWidget::item:selected {
+                background-color: #7f807c;
+            }
+            QTableWidget::item:selected:focus {
+                outline: none;
+            }
+            QHeaderView::section {
+                padding-right: 5px;
+                padding-left: 5px;
+            }
+        """)
+        layout_dir_qld.addWidget(self.tableWidget_qld_direita)
+        self.splitter_qld.addWidget(self.widget_painel_dir_qld)
+
+        self.splitter_qld.setStretchFactor(0, 7)
+        self.splitter_qld.setStretchFactor(1, 3)
+        self.layout_quer_loc_dificeis.addWidget(self.splitter_qld, 1)
+
+        self.ui.stackedWidget.addWidget(self.page_quer_loc_dificeis)
+
+        # Botão no menu
+        self.actionQuerLocDificeis = QtGui.QAction("Querem Loc. Difíceis", self)
+        self.ui.menuMenu.addAction(self.actionQuerLocDificeis)
+        self.actionQuerLocDificeis.triggered.connect(
+            lambda: self.Pag_QuerLocDificeis())
+
+        # Conexão: clique atualiza o painel direito
+        self.tableWidget_qld.cellClicked.connect(
+            lambda: self.atualizar_Painel_Direita_QLD())
+
+        # DataFrame filtrado para uso no painel direito
+        self.df_qld_filtrado = pd.DataFrame()
+
 
         # 4. Define a cor do destaque (Amarelo com letra preta) usando CSS (QSS)
         # O 'outline: none' remove aquele pontilhado em volta da célula
@@ -985,6 +1193,12 @@ class UI(QMainWindow):
         self.ui.stackedWidget.setCurrentIndex(indice)
         self.popular_tabela_prioritarios()
 
+    def Pag_QuerLocDificeis(self):
+        """Navega para a página 'Querem Loc. Difíceis' e atualiza a tabela."""
+        indice = self.ui.stackedWidget.indexOf(self.page_quer_loc_dificeis)
+        self.ui.stackedWidget.setCurrentIndex(indice)
+        self.popular_tabela_qld()
+
     def popular_tabela_prioritarios(self):
         """Preenche a tabela com os militares dos Blocos A, B, C e D."""
         global df_plamov_compilado
@@ -1082,8 +1296,585 @@ class UI(QMainWindow):
         # Ajusta largura das colunas ao conteúdo
         self.tableWidget_prioritarios.resizeColumnsToContents()
 
+        # Armazena o DataFrame filtrado para uso no painel direito
+        self.df_prioritarios_filtrado = df_filtrado.copy()
+
+    def atualizar_Painel_Direita_Prioritarios(self):
+        #TODO (dúvida- Gerente) Eu não sei se devo mostrar as OMs que possuem vaga para a capacitação dos 
+        """Atualiza o painel direito da aba Militares Prioritários
+        com as OMs disponíveis para o militar selecionado.
+        Mostra primeiro as 3 opções do militar (LOC 1, 2, 3) destacadas,
+        depois um separador, e todas as demais OMs por taxa de ocupação."""
+        global df_OMs
+        global df_plamov_compilado
+
+        # Guard: dados devem estar carregados
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            return
+        if 'df_OMs' not in globals() or df_OMs.empty:
+            return
+        if self.df_prioritarios_filtrado.empty:
+            return
+
+        # Identifica a linha selecionada na tabela de prioritários
+        linha_visual = self.tableWidget_prioritarios.currentRow()
+        if linha_visual < 0 or linha_visual >= len(self.df_prioritarios_filtrado):
+            return
+
+        # Pega o índice original do DataFrame filtrado
+        row_data = self.df_prioritarios_filtrado.iloc[linha_visual]
+        idx_original = self.df_prioritarios_filtrado.index[linha_visual]
+
+        # Dados do militar selecionado
+        posto = str(pegar_posto(idx_original)).strip()
+        quadro = str(pegar_quadro(idx_original)).strip()
+        especialidade = str(pegar_especialidade(idx_original)).strip()
+        Projeto = str(pegar_Projeto(idx_original)).strip()
+
+        loc1 = str(row_data.get('LOC 1', '')).strip().upper()
+        loc2 = str(row_data.get('LOC 2', '')).strip().upper()
+        loc3 = str(row_data.get('LOC 3', '')).strip().upper()
+
+        # --- CALCULA TAXA E VAGAS PARA CADA OM ---
+        n_oms = df_OMs.shape[0]
+        lista_taxa = [""] * n_oms
+        lista_vagas = [""] * n_oms
+        lista_loc = list(df_OMs["Localidade"].astype(
+            str)) if "Localidade" in df_OMs.columns else [""] * n_oms
+
+        usar_bma = (
+            especialidade == "BMA"
+            and 'df_TP_BMA' in globals()
+            and not df_TP_BMA.empty
+            and 'Unidade' in df_TP_BMA.columns
+        )
+
+        for k in range(n_oms):
+            chegando = 0
+            saindo = 0
+            om_k = str(df_OMs.iloc[k, 0]).strip()
+
+            if usar_bma:
+                filtro_bma = (
+                    (df_TP_BMA['Unidade'].astype(str).str.strip() == om_k) &
+                    (df_TP_BMA['Posto'].astype(str).str.strip() == posto) &
+                    (df_TP_BMA['Quadro'].astype(str).str.strip() == quadro) &
+                    (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
+                )
+                vagas_OM_selecionada = df_TP_BMA[filtro_bma]
+
+                if not vagas_OM_selecionada.empty:
+                    if posto == "SGT":
+                        query_posto = "POSTO in ['1S', '2S', '3S', 'SO']"
+                    elif posto == "TN":
+                        query_posto = "POSTO in ['1T', '2T']"
+                    else:
+                        query_posto = f"POSTO == '{posto}'"
+
+                    chegando = df_plamov_compilado.query(
+                        f"PLAMOV == '{om_k}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}'"
+                    ).shape[0]
+                    saindo = df_plamov_compilado.query(
+                        f"`OM ATUAL` == '{om_k}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}' & PLAMOV != ''"
+                    ).shape[0]
+
+                    try:
+                        TP = int(vagas_OM_selecionada.iloc[0]['TLP Ano Corrente'])
+                        existentes_na_TP = int(vagas_OM_selecionada.iloc[0]['Existentes'])
+                        if 'Localidade' in vagas_OM_selecionada.columns:
+                            lista_loc[k] = str(vagas_OM_selecionada.iloc[0]['Localidade'])
+                    except (KeyError, ValueError):
+                        TP = 0
+                        existentes_na_TP = 0
+
+                    if TP == 0:
+                        lista_taxa[k] = "Sem TP"
+                    else:
+                        existentes_futuro = existentes_na_TP + chegando - saindo
+                        lista_vagas[k] = int(TP - existentes_na_TP + saindo - chegando)
+                        lista_taxa[k] = round(
+                            (float(existentes_futuro) / float(TP)) * 100, 2)
+            else:
+                if posto == "CP":
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & ((Posto == 'CP/TN') | (Posto == 'CP')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+                elif posto == "TN":
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & ((Posto == 'CP/TN') | (Posto == 'TN')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+                else:
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & Posto == '{posto}' & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+
+                if not vagas_OM_selecionada.empty:
+                    if "Localidade" in vagas_OM_selecionada.columns:
+                        lista_loc[k] = str(vagas_OM_selecionada.iloc[0]["Localidade"])
+
+                    chegando = df_plamov_compilado.query(
+                        f"PLAMOV == '{om_k}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
+                    saindo = df_plamov_compilado.query(
+                        f"`OM ATUAL` == '{om_k}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
+
+                    try:
+                        TP = float(vagas_OM_selecionada.iloc[0]["TLP Ano Corrente"])
+                        existentes_na_TP = float(vagas_OM_selecionada.iloc[0]["Existentes"])
+                    except (KeyError, ValueError):
+                        TP = 0
+                        existentes_na_TP = 0
+
+                    if TP != 0:
+                        existentes = existentes_na_TP + chegando - saindo
+                        lista_vagas[k] = int(TP + saindo - chegando)
+                        lista_taxa[k] = round(
+                            (float(existentes) / float(TP)) * 100, 2)
+                    else:
+                        lista_taxa[k] = "Sem TP"
+                else:
+                    lista_taxa[k] = "Sem TP"
+
+        # Atualiza df_OMs com resultados calculados
+        df_OMs["Taxa de Ocup."] = np.array(lista_taxa, dtype=object)
+        df_OMs["Vagas"] = np.array(lista_vagas, dtype=object)
+        df_OMs["Localidade"] = np.array(lista_loc, dtype=object)
+
+        # --- CONSTRUÇÃO DAS LISTAS: OMs ESCOLHIDAS + DEMAIS ---
+        # Identifica OMs das localidades escolhidas (LOC 1, 2, 3)
+        oms_loc1 = []  # OMs cuja Localidade == LOC 1
+        oms_loc2 = []  # OMs cuja Localidade == LOC 2
+        oms_loc3 = []  # OMs cuja Localidade == LOC 3
+        indices_escolhidos = set()
+
+        for k in range(n_oms):
+            om_loc = str(df_OMs.iloc[k, 3]).strip().upper() if "Localidade" in df_OMs.columns else ""
+            if om_loc == loc1 and loc1 != "":
+                oms_loc1.append(k)
+                indices_escolhidos.add(k)
+            elif om_loc == loc2 and loc2 != "":
+                oms_loc2.append(k)
+                indices_escolhidos.add(k)
+            elif om_loc == loc3 and loc3 != "":
+                oms_loc3.append(k)
+                indices_escolhidos.add(k)
+
+        # OMs restantes (não escolhidas), ordena por taxa de ocup. crescente / vagas decrescente
+        demais = []
+        for k in range(n_oms):
+            if k not in indices_escolhidos:
+                taxa_val = lista_taxa[k]
+                vaga_val = lista_vagas[k]
+                # Converte para números para ordenação
+                try:
+                    taxa_num = float(taxa_val) if taxa_val != "" and taxa_val != "Sem TP" else 99999
+                except (ValueError, TypeError):
+                    taxa_num = 99999
+                try:
+                    vaga_num = int(vaga_val) if vaga_val != "" else -99999
+                except (ValueError, TypeError):
+                    vaga_num = -99999
+                demais.append((k, taxa_num, vaga_num))
+
+        # Ordena: taxa crescente, vagas decrescente (desempate)
+        demais.sort(key=lambda x: (x[1], -x[2]))
+
+        # --- MONTAGEM DA TABELA ---
+        # Total de linhas: OMs LOC1 + OMs LOC2 + OMs LOC3 + 1 separador + demais
+        n_escolhidas = len(oms_loc1) + len(oms_loc2) + len(oms_loc3)
+        tem_escolhidas = n_escolhidas > 0
+        n_separador = 1 if tem_escolhidas else 0
+        total_linhas = n_escolhidas + n_separador + len(demais)
+
+        self.tableWidget_prio_direita.setColumnCount(3)
+        self.tableWidget_prio_direita.setRowCount(total_linhas)
+        self.tableWidget_prio_direita.setHorizontalHeaderLabels(
+            ["OM", "Taxa de Ocup.", "Vagas"])
+
+        # Cores das opções
+        cor_loc1 = QtGui.QColor(29, 181, 2)     # Verde (1ª Opção)
+        cor_loc2 = QtGui.QColor(255, 243, 8)    # Amarelo (2ª Opção)
+        cor_loc3 = QtGui.QColor(255, 0, 255)    # Magenta (3ª Opção)
+        cor_separador = QtGui.QColor(80, 80, 80)  # Cinza escuro
+
+        linha_tabela = 0
+
+        def preencher_linha(linha_t, idx_om, cor_fundo):
+            """Preenche uma linha da tabela com dados da OM e cor de fundo."""
+            om_nome = str(df_OMs.iloc[idx_om, 0])
+            taxa_val = lista_taxa[idx_om]
+            vaga_val = lista_vagas[idx_om]
+
+            if isinstance(taxa_val, (int, float)):
+                taxa_str = "{:.2f}".format(taxa_val)
+            else:
+                taxa_str = str(taxa_val)
+
+            valores = [om_nome, taxa_str, str(vaga_val)]
+            for col, val in enumerate(valores):
+                item = QtWidgets.QTableWidgetItem(val)
+                item.setBackground(cor_fundo)
+                # Para cores claras (amarelo), usa texto preto para legibilidade
+                if cor_fundo == cor_loc2:
+                    item.setForeground(QtGui.QColor(0, 0, 0))
+                else:
+                    item.setForeground(QtGui.QColor(255, 255, 255))
+                self.tableWidget_prio_direita.setItem(linha_t, col, item)
+
+        # 1ª Opção (Verde)
+        for idx_om in oms_loc1:
+            preencher_linha(linha_tabela, idx_om, cor_loc1)
+            linha_tabela += 1
+
+        # 2ª Opção (Amarelo)
+        for idx_om in oms_loc2:
+            preencher_linha(linha_tabela, idx_om, cor_loc2)
+            linha_tabela += 1
+
+        # 3ª Opção (Magenta)
+        for idx_om in oms_loc3:
+            preencher_linha(linha_tabela, idx_om, cor_loc3)
+            linha_tabela += 1
+
+        # Linha separadora
+        if tem_escolhidas:
+            for col in range(3):
+                item_sep = QtWidgets.QTableWidgetItem(
+                    "━━━━━━━━━━" if col == 0 else "━━━━━")
+                item_sep.setBackground(cor_separador)
+                item_sep.setForeground(QtGui.QColor(200, 200, 200))
+                item_sep.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                self.tableWidget_prio_direita.setItem(linha_tabela, col, item_sep)
+            linha_tabela += 1
+
+        # Demais OMs (alternância de cor)
+        for pos, (idx_om, _, _) in enumerate(demais):
+            om_nome = str(df_OMs.iloc[idx_om, 0])
+            taxa_val = lista_taxa[idx_om]
+            vaga_val = lista_vagas[idx_om]
+
+            if isinstance(taxa_val, (int, float)):
+                taxa_str = "{:.2f}".format(taxa_val)
+            else:
+                taxa_str = str(taxa_val)
+
+            valores = [om_nome, taxa_str, str(vaga_val)]
+            for col, val in enumerate(valores):
+                item = QtWidgets.QTableWidgetItem(val)
+                # Coloração alternada
+                if pos % 2:
+                    item.setBackground(QtGui.QColor(100, 139, 245))
+                self.tableWidget_prio_direita.setItem(linha_tabela, col, item)
+            linha_tabela += 1
+
+        # Ajusta largura das colunas
+        self.tableWidget_prio_direita.resizeColumnsToContents()
+
     def alerta_deficit(self):
         pass
+
+    def popular_tabela_qld(self):
+        """Preenche a tabela com os militares que querem ir para localidades difíceis (Score 9)."""
+        global df_plamov_compilado
+
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            self.tableWidget_qld.setRowCount(0)
+            self.lbl_resumo_qld.setText("Nenhum dado carregado.")
+            return
+
+        if 'SCORE_PRIORIDADE' not in df_plamov_compilado.columns:
+            self.tableWidget_qld.setRowCount(0)
+            self.lbl_resumo_qld.setText(
+                "Execute a ordenação primeiro (carregue os dados dos militares).")
+            return
+
+        # Filtra apenas Score 9 (cond_quer_localidades_d)
+        df_filtrado = df_plamov_compilado[
+            df_plamov_compilado['SCORE_PRIORIDADE'] == 9
+        ].copy()
+
+        if df_filtrado.empty:
+            self.tableWidget_qld.setRowCount(0)
+            self.lbl_resumo_qld.setText(
+                "Nenhum militar quer ir para localidades difíceis.")
+            return
+
+        total = len(df_filtrado)
+        self.lbl_resumo_qld.setText(f"Total: {total} militares")
+
+        # Colunas a exibir
+        COLUNAS_DESEJADAS = [
+            "LOC ATUAL", "OM ATUAL", "SARAM", "POSTO", "QUADRO",
+            "ESP", "PROJETO", "TEMPO LOC", "LOC 1", "LOC 2", "LOC 3", "PLAMOV"
+        ]
+        colunas_existentes = [
+            col for col in COLUNAS_DESEJADAS if col in df_filtrado.columns]
+
+        self.tableWidget_qld.setColumnCount(len(colunas_existentes))
+        self.tableWidget_qld.setRowCount(len(df_filtrado))
+        self.tableWidget_qld.setHorizontalHeaderLabels(colunas_existentes)
+
+        # Preenchimento visual
+        for i, (idx_original, row_data) in enumerate(df_filtrado.iterrows()):
+            for j, col_name in enumerate(colunas_existentes):
+                valor = str(row_data.get(col_name, ''))
+                item = QtWidgets.QTableWidgetItem(valor)
+                item.setToolTip("Quer ir para localidade difícil (Guarantã, Eirunepê, S. Gabriel, Vilhena)")
+
+                # Coloração alternada
+                if i % 2:
+                    item.setBackground(QtGui.QColor(100, 139, 245))
+
+                self.tableWidget_qld.setItem(i, j, item)
+
+        self.tableWidget_qld.resizeColumnsToContents()
+
+        # Armazena o DataFrame filtrado para uso no painel direito
+        self.df_qld_filtrado = df_filtrado.copy()
+
+    def atualizar_Painel_Direita_QLD(self):
+        """Atualiza o painel direito da aba 'Querem Loc. Difíceis'
+        com as OMs disponíveis para o militar selecionado.
+        Mostra primeiro as 3 opções do militar (LOC 1, 2, 3) destacadas,
+        depois um separador, e todas as demais OMs por taxa de ocupação."""
+        global df_OMs
+        global df_plamov_compilado
+
+        # Guard: dados devem estar carregados
+        if 'df_plamov_compilado' not in globals() or df_plamov_compilado.empty:
+            return
+        if 'df_OMs' not in globals() or df_OMs.empty:
+            return
+        if self.df_qld_filtrado.empty:
+            return
+
+        # Identifica a linha selecionada na tabela
+        linha_visual = self.tableWidget_qld.currentRow()
+        if linha_visual < 0 or linha_visual >= len(self.df_qld_filtrado):
+            return
+
+        # Pega o índice original do DataFrame filtrado
+        row_data = self.df_qld_filtrado.iloc[linha_visual]
+        idx_original = self.df_qld_filtrado.index[linha_visual]
+
+        # Dados do militar selecionado
+        posto = str(pegar_posto(idx_original)).strip()
+        quadro = str(pegar_quadro(idx_original)).strip()
+        especialidade = str(pegar_especialidade(idx_original)).strip()
+        Projeto = str(pegar_Projeto(idx_original)).strip()
+
+        loc1 = str(row_data.get('LOC 1', '')).strip().upper()
+        loc2 = str(row_data.get('LOC 2', '')).strip().upper()
+        loc3 = str(row_data.get('LOC 3', '')).strip().upper()
+
+        # --- CALCULA TAXA E VAGAS PARA CADA OM ---
+        n_oms = df_OMs.shape[0]
+        lista_taxa = [""] * n_oms
+        lista_vagas = [""] * n_oms
+        lista_loc = list(df_OMs["Localidade"].astype(
+            str)) if "Localidade" in df_OMs.columns else [""] * n_oms
+
+        usar_bma = (
+            especialidade == "BMA"
+            and 'df_TP_BMA' in globals()
+            and not df_TP_BMA.empty
+            and 'Unidade' in df_TP_BMA.columns
+        )
+
+        for k in range(n_oms):
+            chegando = 0
+            saindo = 0
+            om_k = str(df_OMs.iloc[k, 0]).strip()
+
+            if usar_bma:
+                filtro_bma = (
+                    (df_TP_BMA['Unidade'].astype(str).str.strip() == om_k) &
+                    (df_TP_BMA['Posto'].astype(str).str.strip() == posto) &
+                    (df_TP_BMA['Quadro'].astype(str).str.strip() == quadro) &
+                    (df_TP_BMA['Projeto'].astype(str).str.strip() == Projeto)
+                )
+                vagas_OM_selecionada = df_TP_BMA[filtro_bma]
+
+                if not vagas_OM_selecionada.empty:
+                    if posto == "SGT":
+                        query_posto = "POSTO in ['1S', '2S', '3S', 'SO']"
+                    elif posto == "TN":
+                        query_posto = "POSTO in ['1T', '2T']"
+                    else:
+                        query_posto = f"POSTO == '{posto}'"
+
+                    chegando = df_plamov_compilado.query(
+                        f"PLAMOV == '{om_k}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}'"
+                    ).shape[0]
+                    saindo = df_plamov_compilado.query(
+                        f"`OM ATUAL` == '{om_k}' & {query_posto} & QUADRO == '{quadro}' & ESP == 'BMA' & `PROJETO` == '{Projeto}' & PLAMOV != ''"
+                    ).shape[0]
+
+                    try:
+                        TP = int(vagas_OM_selecionada.iloc[0]['TLP Ano Corrente'])
+                        existentes_na_TP = int(vagas_OM_selecionada.iloc[0]['Existentes'])
+                        if 'Localidade' in vagas_OM_selecionada.columns:
+                            lista_loc[k] = str(vagas_OM_selecionada.iloc[0]['Localidade'])
+                    except (KeyError, ValueError):
+                        TP = 0
+                        existentes_na_TP = 0
+
+                    if TP == 0:
+                        lista_taxa[k] = "Sem TP"
+                    else:
+                        existentes_futuro = existentes_na_TP + chegando - saindo
+                        lista_vagas[k] = int(TP - existentes_na_TP + saindo - chegando)
+                        lista_taxa[k] = round(
+                            (float(existentes_futuro) / float(TP)) * 100, 2)
+            else:
+                if posto == "CP":
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & ((Posto == 'CP/TN') | (Posto == 'CP')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+                elif posto == "TN":
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & ((Posto == 'CP/TN') | (Posto == 'TN')) & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+                else:
+                    vagas_OM_selecionada = df_TP.query(
+                        f"Unidade == '{om_k}' & Posto == '{posto}' & Quadro == '{quadro}' & Especialidade == '{especialidade}'")
+
+                if not vagas_OM_selecionada.empty:
+                    if "Localidade" in vagas_OM_selecionada.columns:
+                        lista_loc[k] = str(vagas_OM_selecionada.iloc[0]["Localidade"])
+
+                    chegando = df_plamov_compilado.query(
+                        f"PLAMOV == '{om_k}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}'").shape[0]
+                    saindo = df_plamov_compilado.query(
+                        f"`OM ATUAL` == '{om_k}' & POSTO == '{posto}' & QUADRO == '{quadro}' & ESP == '{especialidade}' & PLAMOV != ''").shape[0]
+
+                    try:
+                        TP = float(vagas_OM_selecionada.iloc[0]["TLP Ano Corrente"])
+                        existentes_na_TP = float(vagas_OM_selecionada.iloc[0]["Existentes"])
+                    except (KeyError, ValueError):
+                        TP = 0
+                        existentes_na_TP = 0
+
+                    if TP != 0:
+                        existentes = existentes_na_TP + chegando - saindo
+                        lista_vagas[k] = int(TP + saindo - chegando)
+                        lista_taxa[k] = round(
+                            (float(existentes) / float(TP)) * 100, 2)
+                    else:
+                        lista_taxa[k] = "Sem TP"
+                else:
+                    lista_taxa[k] = "Sem TP"
+
+        # Atualiza df_OMs com resultados calculados
+        df_OMs["Taxa de Ocup."] = np.array(lista_taxa, dtype=object)
+        df_OMs["Vagas"] = np.array(lista_vagas, dtype=object)
+        df_OMs["Localidade"] = np.array(lista_loc, dtype=object)
+
+        # --- CONSTRUÇÃO DAS LISTAS: OMs ESCOLHIDAS + DEMAIS ---
+        oms_loc1 = []
+        oms_loc2 = []
+        oms_loc3 = []
+        indices_escolhidos = set()
+
+        for k in range(n_oms):
+            om_loc = str(df_OMs.iloc[k, 3]).strip().upper() if "Localidade" in df_OMs.columns else ""
+            if om_loc == loc1 and loc1 != "":
+                oms_loc1.append(k)
+                indices_escolhidos.add(k)
+            elif om_loc == loc2 and loc2 != "":
+                oms_loc2.append(k)
+                indices_escolhidos.add(k)
+            elif om_loc == loc3 and loc3 != "":
+                oms_loc3.append(k)
+                indices_escolhidos.add(k)
+
+        # OMs restantes, ordena por taxa crescente / vagas decrescente
+        demais = []
+        for k in range(n_oms):
+            if k not in indices_escolhidos:
+                taxa_val = lista_taxa[k]
+                vaga_val = lista_vagas[k]
+                try:
+                    taxa_num = float(taxa_val) if taxa_val != "" and taxa_val != "Sem TP" else 99999
+                except (ValueError, TypeError):
+                    taxa_num = 99999
+                try:
+                    vaga_num = int(vaga_val) if vaga_val != "" else -99999
+                except (ValueError, TypeError):
+                    vaga_num = -99999
+                demais.append((k, taxa_num, vaga_num))
+
+        demais.sort(key=lambda x: (x[1], -x[2]))
+
+        # --- MONTAGEM DA TABELA ---
+        n_escolhidas = len(oms_loc1) + len(oms_loc2) + len(oms_loc3)
+        tem_escolhidas = n_escolhidas > 0
+        n_separador = 1 if tem_escolhidas else 0
+        total_linhas = n_escolhidas + n_separador + len(demais)
+
+        self.tableWidget_qld_direita.setColumnCount(3)
+        self.tableWidget_qld_direita.setRowCount(total_linhas)
+        self.tableWidget_qld_direita.setHorizontalHeaderLabels(
+            ["OM", "Taxa de Ocup.", "Vagas"])
+
+        cor_loc1 = QtGui.QColor(29, 181, 2)
+        cor_loc2 = QtGui.QColor(255, 243, 8)
+        cor_loc3 = QtGui.QColor(255, 0, 255)
+        cor_separador = QtGui.QColor(80, 80, 80)
+
+        linha_tabela = 0
+
+        def preencher_linha(linha_t, idx_om, cor_fundo):
+            om_nome = str(df_OMs.iloc[idx_om, 0])
+            taxa_val = lista_taxa[idx_om]
+            vaga_val = lista_vagas[idx_om]
+            if isinstance(taxa_val, (int, float)):
+                taxa_str = "{:.2f}".format(taxa_val)
+            else:
+                taxa_str = str(taxa_val)
+            valores = [om_nome, taxa_str, str(vaga_val)]
+            for col, val in enumerate(valores):
+                item = QtWidgets.QTableWidgetItem(val)
+                item.setBackground(cor_fundo)
+                if cor_fundo == cor_loc2:
+                    item.setForeground(QtGui.QColor(0, 0, 0))
+                else:
+                    item.setForeground(QtGui.QColor(255, 255, 255))
+                self.tableWidget_qld_direita.setItem(linha_t, col, item)
+
+        for idx_om in oms_loc1:
+            preencher_linha(linha_tabela, idx_om, cor_loc1)
+            linha_tabela += 1
+
+        for idx_om in oms_loc2:
+            preencher_linha(linha_tabela, idx_om, cor_loc2)
+            linha_tabela += 1
+
+        for idx_om in oms_loc3:
+            preencher_linha(linha_tabela, idx_om, cor_loc3)
+            linha_tabela += 1
+
+        if tem_escolhidas:
+            for col in range(3):
+                item_sep = QtWidgets.QTableWidgetItem(
+                    "━━━━━━━━━━" if col == 0 else "━━━━━")
+                item_sep.setBackground(cor_separador)
+                item_sep.setForeground(QtGui.QColor(200, 200, 200))
+                item_sep.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                self.tableWidget_qld_direita.setItem(linha_tabela, col, item_sep)
+            linha_tabela += 1
+
+        for pos, (idx_om, _, _) in enumerate(demais):
+            om_nome = str(df_OMs.iloc[idx_om, 0])
+            taxa_val = lista_taxa[idx_om]
+            vaga_val = lista_vagas[idx_om]
+            if isinstance(taxa_val, (int, float)):
+                taxa_str = "{:.2f}".format(taxa_val)
+            else:
+                taxa_str = str(taxa_val)
+            valores = [om_nome, taxa_str, str(vaga_val)]
+            for col, val in enumerate(valores):
+                item = QtWidgets.QTableWidgetItem(val)
+                if pos % 2:
+                    item.setBackground(QtGui.QColor(100, 139, 245))
+                self.tableWidget_qld_direita.setItem(linha_tabela, col, item)
+            linha_tabela += 1
+
+        self.tableWidget_qld_direita.resizeColumnsToContents()
 
     def atualizar_Painel_Direita(self):
         global df_OMs
@@ -1934,7 +2725,6 @@ class UI(QMainWindow):
         coluna_ativa = int(self.coluna_ativa_dados_militares())
 
         if status_painel == "carregado":
-            global df_TP
             # nessa fase preciso saber qual a linha ativa que o usuário editou
             # nessa etapa preciso saber a OM_destino e OM_origem, isso vai ser buscado no df_plamov_compilado
             OM_atual = df_plamov_compilado.loc[linha_ativa, "OM ATUAL"]
