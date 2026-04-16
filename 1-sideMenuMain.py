@@ -1629,10 +1629,12 @@ class UI(QMainWindow):
         self.df_qld_filtrado = df_filtrado.copy()
 
     def atualizar_Painel_Direita_QLD(self):
-        """Atualiza o painel direito da aba 'Querem Loc. Difíceis'
-        com as OMs disponíveis para o militar selecionado.
-        Mostra primeiro as 3 opções do militar (LOC 1, 2, 3) destacadas,
-        depois um separador, e todas as demais OMs por taxa de ocupação."""
+        """Atualiza o painel direito da aba 'Querem Loc. Difíceis'.
+        Mostra primeiro as OMs de localidades difíceis (loc_bloco_a) que o
+        militar escolheu, na ordem de preferência dele, destacadas em cores.
+        Localidades que NÃO são difíceis (ex: Brasília) são ignoradas no destaque.
+        Abaixo, todas as demais OMs por taxa de ocupação crescente /
+        vagas crescente."""
         global df_OMs
         global df_plamov_compilado
 
@@ -1764,25 +1766,40 @@ class UI(QMainWindow):
         df_OMs["Vagas"] = np.array(lista_vagas, dtype=object)
         df_OMs["Localidade"] = np.array(lista_loc, dtype=object)
 
-        # --- CONSTRUÇÃO DAS LISTAS: OMs ESCOLHIDAS + DEMAIS ---
-        oms_loc1 = []
-        oms_loc2 = []
-        oms_loc3 = []
+        # --- CONSTRUÇÃO DAS LISTAS: SÓ LOCALIDADES DIFÍCEIS (loc_bloco_a) ---
+        # Apenas localidades difíceis recebem destaque no topo.
+        # Localidades comuns (ex: Brasília) NÃO são destacadas mesmo que
+        # o militar as tenha escolhido nas opções.
+        loc_bloco_a = ["GUARANTÃ DO NORTE", "EIRUNEPÊ", "EIRUNEPE",
+                       "SÃO GABRIEL DA CACHOEIRA", "SAO GABRIEL DA CACHOEIRA", "VILHENA"]
+        loc_bloco_a_upper = [x.upper() for x in loc_bloco_a]
+
+        # Identifica quais opções do militar são loc. difíceis
+        # Mantém a ordem de escolha: 1ª → 2ª → 3ª
+        opcoes_dificeis = []  # lista de tuplas (localidade, cor)
+        cor_loc1 = QtGui.QColor(29, 181, 2)     # Verde (1ª Opção)
+        cor_loc2 = QtGui.QColor(255, 243, 8)    # Amarelo (2ª Opção)
+        cor_loc3 = QtGui.QColor(255, 0, 255)    # Magenta (3ª Opção)
+
+        if loc1 in loc_bloco_a_upper and loc1 != "":
+            opcoes_dificeis.append((loc1, cor_loc1))
+        if loc2 in loc_bloco_a_upper and loc2 != "":
+            opcoes_dificeis.append((loc2, cor_loc2))
+        if loc3 in loc_bloco_a_upper and loc3 != "":
+            opcoes_dificeis.append((loc3, cor_loc3))
+
+        # Monta lista ordenada de OMs destacadas (na ordem de preferência)
+        oms_destacadas = []  # lista de tuplas (indice_om, cor)
         indices_escolhidos = set()
 
-        for k in range(n_oms):
-            om_loc = str(df_OMs.iloc[k, 3]).strip().upper() if "Localidade" in df_OMs.columns else ""
-            if om_loc == loc1 and loc1 != "":
-                oms_loc1.append(k)
-                indices_escolhidos.add(k)
-            elif om_loc == loc2 and loc2 != "":
-                oms_loc2.append(k)
-                indices_escolhidos.add(k)
-            elif om_loc == loc3 and loc3 != "":
-                oms_loc3.append(k)
-                indices_escolhidos.add(k)
+        for loc_dificil, cor in opcoes_dificeis:
+            for k in range(n_oms):
+                om_loc = str(df_OMs.iloc[k, 3]).strip().upper() if "Localidade" in df_OMs.columns else ""
+                if om_loc == loc_dificil and k not in indices_escolhidos:
+                    oms_destacadas.append((k, cor))
+                    indices_escolhidos.add(k)
 
-        # OMs restantes, ordena por taxa crescente / vagas decrescente
+        # OMs restantes: taxa crescente, vagas crescente
         demais = []
         for k in range(n_oms):
             if k not in indices_escolhidos:
@@ -1793,15 +1810,15 @@ class UI(QMainWindow):
                 except (ValueError, TypeError):
                     taxa_num = 99999
                 try:
-                    vaga_num = int(vaga_val) if vaga_val != "" else -99999
+                    vaga_num = int(vaga_val) if vaga_val != "" else 99999
                 except (ValueError, TypeError):
-                    vaga_num = -99999
+                    vaga_num = 99999
                 demais.append((k, taxa_num, vaga_num))
 
-        demais.sort(key=lambda x: (x[1], -x[2]))
+        demais.sort(key=lambda x: (x[1], x[2]))
 
         # --- MONTAGEM DA TABELA ---
-        n_escolhidas = len(oms_loc1) + len(oms_loc2) + len(oms_loc3)
+        n_escolhidas = len(oms_destacadas)
         tem_escolhidas = n_escolhidas > 0
         n_separador = 1 if tem_escolhidas else 0
         total_linhas = n_escolhidas + n_separador + len(demais)
@@ -1811,9 +1828,6 @@ class UI(QMainWindow):
         self.tableWidget_qld_direita.setHorizontalHeaderLabels(
             ["OM", "Taxa de Ocup.", "Vagas"])
 
-        cor_loc1 = QtGui.QColor(29, 181, 2)
-        cor_loc2 = QtGui.QColor(255, 243, 8)
-        cor_loc3 = QtGui.QColor(255, 0, 255)
         cor_separador = QtGui.QColor(80, 80, 80)
 
         linha_tabela = 0
@@ -1836,16 +1850,9 @@ class UI(QMainWindow):
                     item.setForeground(QtGui.QColor(255, 255, 255))
                 self.tableWidget_qld_direita.setItem(linha_t, col, item)
 
-        for idx_om in oms_loc1:
-            preencher_linha(linha_tabela, idx_om, cor_loc1)
-            linha_tabela += 1
-
-        for idx_om in oms_loc2:
-            preencher_linha(linha_tabela, idx_om, cor_loc2)
-            linha_tabela += 1
-
-        for idx_om in oms_loc3:
-            preencher_linha(linha_tabela, idx_om, cor_loc3)
+        # OMs de localidades difíceis (na ordem de preferência do militar)
+        for idx_om, cor in oms_destacadas:
+            preencher_linha(linha_tabela, idx_om, cor)
             linha_tabela += 1
 
         if tem_escolhidas:
